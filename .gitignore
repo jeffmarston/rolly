@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+.DS_Store
+*.log
+scripts/*.cjs
+*.tsbuildinfo
+release/
+assets/icon.iconset/

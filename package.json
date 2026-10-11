@@ -1,0 +1,81 @@
+{
+  "name": "rolly",
+  "version": "0.1.0",
+  "description": "A fleet view for Claude Code sessions",
+  "main": "./out/main/index.js",
+  "author": "Jeff Marston",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "type-check": "vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.node.json",
+    "postinstall": "electron-rebuild -f -w node-pty && chmod +x node_modules/node-pty/build/Release/spawn-helper node_modules/node-pty/prebuilds/*/spawn-helper",
+    "package": "electron-vite build && electron-builder --dir",
+    "dist": "electron-vite build && electron-builder",
+    "icon": "esbuild scripts/make-icon.mjs --bundle --platform=node --format=cjs --external:electron --outfile=scripts/make-icon.cjs && electron scripts/make-icon.cjs assets && iconutil -c icns assets/icon.iconset -o assets/icon.icns"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "chokidar": "^5.0.0",
+    "node-pty": "^1.1.0",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@electron/rebuild": "^4.2.1",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "sass": "^1.105.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vue-tsc": "^3.3.13"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "@parcel/watcher@2.6.0": true,
+    "electron@44.7.0": true,
+    "node-pty@1.1.0": true
+  },
+  "productName": "Rolly",
+  "build": {
+    "appId": "ai.spninc.rolly",
+    "productName": "Rolly",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Development",
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}
