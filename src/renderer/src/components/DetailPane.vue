@@ -17,6 +17,8 @@ const props = defineProps<{
   stageOverridden?: boolean
   jira?: { key: string; url: string }
   dismissed?: boolean
+  /** Board layout: the meta row folds into the header and the ask is dropped. */
+  compact?: boolean
 }>()
 const emit = defineEmits<{
   adopt: []
@@ -40,7 +42,7 @@ async function copyResume(): Promise<void> {
 </script>
 
 <template>
-  <section v-if="session" class="detail">
+  <section v-if="session" class="detail" :class="{ compact }">
     <header>
       <h1>{{ session.title }}</h1>
       <span class="badge" :class="session.status">{{
@@ -59,6 +61,20 @@ async function copyResume(): Promise<void> {
         </button>
         <span v-if="!stageOverridden" class="auto">auto</span>
       </span>
+      <span v-if="compact && links.length" class="chips">
+        <button
+          v-for="link in links"
+          :key="link.url"
+          :class="prStateOf(link.url)"
+          type="button"
+          :title="link.url"
+          @click="openLink(link.url)"
+        >
+          <span v-if="prStateOf(link.url)" class="glyph">{{ PR_GLYPH[prStateOf(link.url)!] }}</span>
+          {{ link.label }}
+        </button>
+      </span>
+
       <div class="actions">
         <button type="button" @click="copyResume">Copy resume command</button>
         <button v-if="dismissed" type="button" @click="emit('restore')">Reopen</button>
@@ -81,7 +97,7 @@ async function copyResume(): Promise<void> {
       </div>
     </header>
 
-    <dl class="meta">
+    <dl class="meta" :class="{ inline: compact }">
       <div class="jira">
         <dt>Jira</dt>
         <dd>
@@ -111,7 +127,7 @@ async function copyResume(): Promise<void> {
       </div>
     </dl>
 
-    <div v-if="links.length" class="prs">
+    <div v-if="links.length && !compact" class="prs">
       <button
         v-for="link in links"
         :key="link.url"
@@ -128,7 +144,7 @@ async function copyResume(): Promise<void> {
     </div>
 
     <blockquote
-      v-if="session.summary"
+      v-if="session.summary && !compact"
       class="ask"
       :class="{ expanded }"
       :title="expanded ? '' : 'Click to expand'"
@@ -245,6 +261,62 @@ h1 {
     &:hover {
       border-color: var(--danger);
       color: var(--danger);
+    }
+  }
+}
+
+.compact {
+  header {
+    flex-wrap: wrap;
+  }
+
+  .meta.inline {
+    padding-top: 0;
+    padding-bottom: 10px;
+    gap: 18px;
+
+    div {
+      flex-direction: row;
+      align-items: baseline;
+      gap: 7px;
+    }
+
+    dt {
+      font-size: 10px;
+    }
+  }
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  button {
+    padding: 3px 8px;
+    border-color: transparent;
+    border-radius: 6px;
+    background: var(--bg-raised);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+
+    &.open {
+      color: var(--done);
+    }
+    &.draft {
+      color: var(--text-faint);
+    }
+    &.merged {
+      color: var(--merged);
+    }
+    &.closed {
+      color: var(--danger);
+      text-decoration: line-through;
+    }
+
+    .glyph {
+      font-size: 9px;
     }
   }
 }

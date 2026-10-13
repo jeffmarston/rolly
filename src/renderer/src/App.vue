@@ -7,17 +7,17 @@ import { hydratePrs } from './prs'
 import {
   dismiss,
   hydrateState,
-  isCollapsed,
   isDismissed,
   restore,
   isOverridden,
   jiraFor,
   setJira,
   setStage,
-  stageOf,
-  toggleCollapsed
+  stageOf
 } from './stages'
-import SessionRow from './components/SessionRow.vue'
+import BoardCard from './components/BoardCard.vue'
+import BoardColumn from './components/BoardColumn.vue'
+import CloseRail from './components/CloseRail.vue'
 import StatusDot from './components/StatusDot.vue'
 import DetailPane from './components/DetailPane.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
@@ -36,6 +36,28 @@ const workspace = ref('')
 const showJira = ref(false)
 const showHooks = ref(false)
 const hookInfo = ref<{ url: string; listening: boolean }>()
+const dragging = ref('')
+const showClosed = ref(false)
+
+const STAGE_ACCENT: Record<Stage, string> = {
+  shape: '#a371f7',
+  build: '#4a9eff',
+  verify: '#3ecf8e'
+}
+
+/** Dropping a card pins the stage: the board is a statement, not a suggestion. */
+function moveTo(id: string, stage: Stage): void {
+  dragging.value = ''
+  setStage(id, stage)
+  selectedId.value = id
+}
+
+async function closeById(id: string): Promise<void> {
+  dragging.value = ''
+  await window.rolly.pty.close(id)
+  dismiss(id)
+  if (selectedId.value === id) selectedId.value = lifecycle.value[0]?.rows[0]?.id ?? null
+}
 
 function ticketCreated(issue: { key: string; url: string }): void {
   if (selectedId.value) setJira(selectedId.value, issue)
@@ -96,7 +118,7 @@ async function closeSession(): Promise<void> {
   if (!id) return
   await window.rolly.pty.close(id)
   dismiss(id)
-  selectedId.value = groups.value[0]?.rows[0]?.id ?? null
+  selectedId.value = lifecycle.value[0]?.rows[0]?.id ?? null
 }
 
 function restoreSession(): void {
@@ -131,25 +153,22 @@ const visible = computed(() => {
   )
 })
 
-const groups = computed(() => {
+const lifecycle = computed(() => {
   const open = visible.value.filter((session) => !isDismissed(session))
-  const lifecycle = STAGE_ORDER.map((stage) => {
+  return STAGE_ORDER.map((stage) => {
     const rows = open.filter((session) => stageOf(session) === stage).sort(byUrgency)
     return {
-      key: stage as string,
+      stage,
       label: STAGE_LABEL[stage],
       hint: STAGE_HINT[stage],
+      accent: STAGE_ACCENT[stage],
       rows,
       waiting: rows.filter((session) => session.status === 'needs-you').length
     }
   })
-
-  const closed = visible.value.filter(isDismissed).sort(byUrgency)
-  return [
-    ...lifecycle,
-    { key: 'closed', label: 'Closed', hint: 'Closed by you — reopening brings it back', rows: closed, waiting: 0 }
-  ].filter((group) => group.rows.length > 0)
 })
+
+const closed = computed(() => visible.value.filter(isDismissed).sort(byUrgency))
 
 /** Urgency cuts across the lifecycle axis, so it sorts within a stage rather than above it. */
 function byUrgency(a: SessionRecord, b: SessionRecord): number {
@@ -204,12 +223,8 @@ onUnmounted(() => {
 
 <template>
   <div class="shell">
-    <aside class="rail">
-      <header>
-        <h2>Sessions</h2>
-        <button type="button" @click="showNew = true">New session</button>
-      </header>
-
+    <header class="top">
+      <h1>Rolly</h1>
       <ul class="counts">
         <li v-for="entry in counts" :key="entry.status">
           <StatusDot :status="entry.status as SessionStatus" />
@@ -219,43 +234,63 @@ onUnmounted(() => {
       </ul>
 
       <input v-model="filter" type="search" placeholder="Filter by title, branch or folder" />
+      <button type="button" class="new" @click="showNew = true">New session</button>
+    </header>
 
-      <div class="list">
-        <section v-for="group in groups" :key="group.key">
-          <button class="group" type="button" :title="group.hint" @click="toggleCollapsed(group.key)">
-            <span class="chevron">{{ isCollapsed(group.key) ? '▸' : '▾' }}</span>
-            <span class="label">{{ group.label }}</span>
-            <span class="count">{{ group.rows.length }}</span>
-            <span v-if="group.waiting" class="waiting">{{ group.waiting }} needs you</span>
-          </button>
+    <div class="board">
+      <BoardColumn
+        v-for="column in lifecycle"
+        :key="column.stage"
+        :label="column.label"
+        :hint="column.hint"
+        :rows="column.rows"
+        :waiting="column.waiting"
+        :accent="column.accent"
+        @drop="moveTo($event, column.stage)"
+      >
+        <BoardCard
+          v-for="session in column.rows"
+          :key="session.id"
+          :session="session"
+          :now="now"
+          :selected="session.id === selectedId"
+          :live="isLive(session.id)"
+          @pick="selectedId = session.id"
+          @drag="dragging = $event"
+        />
+      </BoardColumn>
 
-          <template v-if="!isCollapsed(group.key)">
-            <SessionRow
-              v-for="session in group.rows"
-              :key="session.id"
-              :session="session"
-              :now="now"
-              :selected="session.id === selectedId"
-              :live="isLive(session.id)"
-              @click="selectedId = session.id"
-            />
-          </template>
-        </section>
+      <section v-if="showClosed" class="shelf">
+        <header>
+          <h2>Closed</h2>
+          <span class="count">{{ closed.length }}</span>
+        </header>
+        <div class="cards">
+          <BoardCard
+            v-for="session in closed"
+            :key="session.id"
+            :session="session"
+            :now="now"
+            :selected="session.id === selectedId"
+            :live="isLive(session.id)"
+            @pick="selectedId = session.id"
+            @drag="dragging = $event"
+          />
+          <p v-if="!closed.length" class="none">Nothing closed.</p>
+        </div>
+      </section>
 
-        <p v-if="!visible.length" class="none">
-          {{ rows.length ? 'No sessions match.' : 'No sessions found yet.' }}
-        </p>
-      </div>
-
-      <footer>
-        <span>Watching ~/.claude/projects</span>
-        <button type="button" class="hooks" @click="showHooks = true">
-          {{ hookInfo?.listening ? 'Exact status' : 'Status inferred' }}
-        </button>
-      </footer>
-    </aside>
+      <CloseRail
+        :count="closed.length"
+        :dragging="!!dragging"
+        :open="showClosed"
+        @drop="closeById"
+        @toggle="showClosed = !showClosed"
+      />
+    </div>
 
     <DetailPane
+      compact
       :session="selected"
       :now="now"
       :live="selected ? isLive(selected.id) : false"
@@ -269,6 +304,13 @@ onUnmounted(() => {
       @stage="changeStage"
       @create-jira="showJira = true"
     />
+
+    <footer class="status">
+      <span>{{ visible.length }} of {{ rows.length }} sessions · watching ~/.claude/projects</span>
+      <button type="button" class="hooks" @click="showHooks = true">
+        {{ hookInfo?.listening ? 'Exact status' : 'Status inferred' }}
+      </button>
+    </footer>
 
     <HooksDialog :open="showHooks" :info="hookInfo" @close="showHooks = false" />
 
@@ -293,39 +335,52 @@ onUnmounted(() => {
 .shell {
   display: flex;
   height: 100%;
+  flex-direction: column;
 }
 
-.rail {
+.top {
   display: flex;
-  width: 360px;
-  flex: 0 0 360px;
-  flex-direction: column;
-  border-right: 1px solid var(--border);
-  background: var(--bg-rail);
+  align-items: center;
+  padding: 14px 18px;
+  gap: 18px;
+  -webkit-app-region: drag;
 
-  header {
-    display: flex;
-    align-items: center;
-    padding: 22px 18px 16px;
-    -webkit-app-region: drag;
+  h1 {
+    margin: 0 0 0 68px;
+    font-size: 16px;
+  }
 
-    h2 {
-      margin: 0;
-      font-size: 18px;
+  input,
+  .new {
+    -webkit-app-region: no-drag;
+  }
+
+  input {
+    width: 280px;
+    margin-left: auto;
+    padding: 7px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-rail);
+
+    &::placeholder {
+      color: var(--text-faint);
     }
-
-    button {
-      margin-left: auto;
-      padding: 7px 12px;
-      -webkit-app-region: no-drag;
+    &:focus {
+      border-color: var(--text-faint);
+      outline: none;
     }
+  }
+
+  .new {
+    padding: 7px 12px;
   }
 }
 
 .counts {
   display: flex;
   margin: 0;
-  padding: 0 18px 14px;
+  padding: 0;
   gap: 14px;
   color: var(--text-dim);
   font-size: 12px;
@@ -338,84 +393,65 @@ onUnmounted(() => {
   }
 }
 
-input {
-  margin: 0 18px 14px;
-  padding: 9px 12px;
+.board {
+  display: flex;
+  min-height: 190px;
+  max-height: 38vh;
+  flex: 0 0 auto;
+  padding: 0 18px 14px;
+  gap: 12px;
+}
+
+.shelf {
+  display: flex;
+  width: 260px;
+  flex: 0 0 260px;
+  flex-direction: column;
+  padding: 12px 12px 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 13px;
   background: var(--bg);
 
-  &::placeholder {
+  header {
+    display: flex;
+    align-items: center;
+    padding: 0 2px 10px;
+    gap: 8px;
+
+    h2 {
+      margin: 0;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .count {
+      color: var(--text-faint);
+      font-size: 11px;
+    }
+  }
+
+  .cards {
+    display: flex;
+    overflow-y: auto;
+    flex: 1;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .none {
+    margin: 0;
+    padding: 18px 0;
     color: var(--text-faint);
-  }
-  &:focus {
-    border-color: var(--text-faint);
-    outline: none;
+    font-size: 12px;
+    text-align: center;
   }
 }
 
-.list {
-  overflow-y: auto;
-  flex: 1;
-  border-top: 1px solid var(--border);
-}
-
-.group {
-  position: sticky;
-  z-index: 1;
-  top: 0;
+.status {
   display: flex;
   align-items: center;
-  width: 100%;
-  padding: 7px 18px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--bg);
-  color: var(--text-faint);
-  gap: 7px;
-
-  &:hover {
-    color: var(--text-dim);
-  }
-
-  .chevron {
-    width: 10px;
-    font-size: 11px;
-    line-height: 1;
-  }
-
-  .label {
-    margin-right: auto;
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .count {
-    font-size: 11px;
-  }
-
-  /** A collapsed stage would otherwise hide the one session waiting on him. */
-  .waiting {
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: var(--banner);
-    color: var(--needs-you);
-    font-size: 11px;
-  }
-}
-
-.none {
-  padding: 28px 18px;
-  color: var(--text-faint);
-  text-align: center;
-}
-
-footer {
-  display: flex;
-  align-items: center;
-  padding: 12px 18px;
+  padding: 9px 18px;
   border-top: 1px solid var(--border);
   color: var(--text-faint);
   font-size: 11px;
