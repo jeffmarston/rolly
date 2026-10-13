@@ -8,6 +8,7 @@ import { sessionLinks } from '@shared/links'
 import { PR_GLYPH, prStateOf } from '@/prs'
 import TerminalView from './TerminalView.vue'
 import ContextMeter from './ContextMeter.vue'
+import SessionInfo from './SessionInfo.vue'
 
 const props = defineProps<{
   session: SessionRecord | null
@@ -43,7 +44,7 @@ async function copyResume(): Promise<void> {
 
 <template>
   <section v-if="session" class="detail" :class="{ compact }">
-    <header>
+    <header v-if="!compact">
       <h1>{{ session.title }}</h1>
       <span class="badge" :class="session.status">{{
         session.statusReason ?? STATUS_LABEL[session.status]
@@ -97,7 +98,7 @@ async function copyResume(): Promise<void> {
       </div>
     </header>
 
-    <dl class="meta" :class="{ inline: compact }">
+    <dl v-if="!compact" class="meta">
       <div class="jira">
         <dt>Jira</dt>
         <dd>
@@ -154,15 +155,31 @@ async function copyResume(): Promise<void> {
       <p>{{ session.summary }}</p>
     </blockquote>
 
-    <TerminalView v-if="live" :key="session.id" :pty-id="session.id" />
+    <div class="work">
+      <TerminalView v-if="live" :key="session.id" :pty-id="session.id" />
 
-    <div v-else class="placeholder">
-      <p>Rolly isn't driving this session.</p>
-      <p class="hint">
-        Opening it here resumes it in a terminal, replaying what came before. If it's also open
-        somewhere else, both stay usable — they share the one transcript.
-      </p>
-      <button type="button" class="primary" @click="emit('adopt')">Open here</button>
+      <div v-else class="placeholder">
+        <p>Rolly isn't driving this session.</p>
+        <p class="hint">
+          Opening it here resumes it in a terminal, replaying what came before. If it's also open
+          somewhere else, both stay usable — they share the one transcript.
+        </p>
+        <button type="button" class="primary" @click="emit('adopt')">Open here</button>
+      </div>
+
+      <SessionInfo
+        v-if="compact"
+        :session="session"
+        :now="now"
+        :live="live"
+        :dismissed="dismissed"
+        :jira="jira"
+        @adopt="emit('adopt')"
+        @close="emit('close')"
+        @restore="emit('restore')"
+        @create-jira="emit('createJira')"
+        @resume="copyResume"
+      />
     </div>
   </section>
 
@@ -265,26 +282,16 @@ h1 {
   }
 }
 
-.compact {
-  header {
-    flex-wrap: wrap;
-  }
+.work {
+  display: flex;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
 
-  .meta.inline {
-    padding-top: 0;
-    padding-bottom: 10px;
-    gap: 18px;
-
-    div {
-      flex-direction: row;
-      align-items: baseline;
-      gap: 7px;
-    }
-
-    dt {
-      font-size: 10px;
-    }
-  }
+.work > :first-child {
+  min-width: 0;
+  flex: 1;
 }
 
 .chips {

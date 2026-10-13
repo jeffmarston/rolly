@@ -189,6 +189,11 @@ const lifecycle = computed(() => {
 
 const closed = computed(() => visible.value.filter(isDismissed).sort(byUrgency))
 
+/** Drawn at the top of the pane, under whichever column owns the focused session. */
+const activeStage = computed(() =>
+  selected.value && !isDismissed(selected.value) ? stageOf(selected.value) : undefined
+)
+
 /** Urgency cuts across the lifecycle axis, so it sorts within a stage rather than above it. */
 function byUrgency(a: SessionRecord, b: SessionRecord): number {
   return rank(a) - rank(b)
@@ -257,7 +262,6 @@ onUnmounted(() => {
         :rows="column.rows"
         :waiting="column.waiting"
         :accent="column.accent"
-        :active="!!selected && !isDismissed(selected) && stageOf(selected) === column.stage"
         @drop="moveTo($event, column.stage)"
       >
         <BoardCard
@@ -299,6 +303,16 @@ onUnmounted(() => {
         @drop="closeById"
         @toggle="showClosed = !showClosed"
       />
+    </div>
+
+    <div class="tie">
+      <span
+        v-for="column in lifecycle"
+        :key="column.stage"
+        :style="{ background: activeStage === column.stage ? column.accent : 'transparent' }"
+      />
+      <i v-if="showClosed" class="shelf-gap" />
+      <i class="rail-gap" />
     </div>
 
     <DetailPane
@@ -445,6 +459,30 @@ onUnmounted(() => {
     color: var(--text-faint);
     font-size: 12px;
     text-align: center;
+  }
+}
+
+/** Sits on the pane, not the board: it marks which column the terminal below belongs to. */
+.tie {
+  display: flex;
+  flex: 0 0 auto;
+  padding: 0 18px;
+  gap: 12px;
+
+  span {
+    height: 3px;
+    flex: 1;
+    border-radius: 2px;
+  }
+
+  .rail-gap {
+    width: 46px;
+    flex: 0 0 46px;
+  }
+
+  .shelf-gap {
+    width: 260px;
+    flex: 0 0 260px;
   }
 }
 
