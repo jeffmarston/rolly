@@ -1,12 +1,27 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import type { SessionRecord, SessionStatus } from '@shared/types'
-import { STATUS_LABEL, STATUS_ORDER } from '@shared/types'
+import type { SessionRecord, SessionStatus, Stage } from '@shared/types'
+import { STAGE_HINT, STAGE_LABEL, STAGE_ORDER, STATUS_LABEL, STATUS_ORDER } from '@shared/types'
 import { release } from './terminals'
+import { hydratePrs } from './prs'
+import {
+  dismiss,
+  hydrateState,
+  isCollapsed,
+  isDismissed,
+  restore,
+  isOverridden,
+  jiraFor,
+  setJira,
+  setStage,
+  stageOf,
+  toggleCollapsed
+} from './stages'
 import SessionRow from './components/SessionRow.vue'
 import StatusDot from './components/StatusDot.vue'
 import DetailPane from './components/DetailPane.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
+import JiraDialog from './components/JiraDialog.vue'
 
 const sessions = ref<SessionRecord[]>([])
 /** Rows for sessions rolly just spawned, until the watcher sees their transcript. */
@@ -16,8 +31,16 @@ const selectedId = ref<string | null>(null)
 const filter = ref('')
 const now = ref(Date.now())
 const showNew = ref(false)
+const workspace = ref('')
+const showJira = ref(false)
+
+function ticketCreated(issue: { key: string; url: string }): void {
+  if (selectedId.value) setJira(selectedId.value, issue)
+  showJira.value = false
+}
 
 let stopUpdates: (() => void) | undefined
+let stopPrs: (() => void) | undefined
 let stopExits: (() => void) | undefined
 let clock: ReturnType<typeof setInterval> | undefined
 
@@ -30,9 +53,13 @@ function isLive(id: string): boolean {
   return liveIds.value.includes(id)
 }
 
-/** Every folder rolly has seen a session in — the shortlist for starting another. */
+/** Rolly's own workspace first, then every folder it has seen a session in. */
 const folders = computed(() => [
-  ...new Set(rows.value.map((session) => session.cwd).filter((cwd): cwd is string => !!cwd))
+  ...new Set(
+    [workspace.value, ...rows.value.map((session) => session.cwd)].filter(
+      (cwd): cwd is string => !!cwd
+    )
+  )
 ])
 
 function track(id: string, cwd: string, title: string, gitBranch?: string): void {
@@ -44,6 +71,9 @@ function track(id: string, cwd: string, title: string, gitBranch?: string): void
     gitBranch,
     title,
     messageCount: 0,
+    stage: 'shape',
+    edits: 0,
+    pullRequestUrls: [],
     status: 'working',
     pullRequests: null,
     lastActivity: new Date().toISOString()
@@ -55,6 +85,19 @@ function track(id: string, cwd: string, title: string, gitBranch?: string): void
 async function startSession({ cwd, name }: { cwd: string; name: string }): Promise<void> {
   showNew.value = false
   track(await window.rolly.pty.start({ cwd, name }), cwd, name)
+}
+
+/** The transcript outlives the terminal, so closing is reversible: Open here resumes it. */
+async function closeSession(): Promise<void> {
+  const id = selectedId.value
+  if (!id) return
+  await window.rolly.pty.close(id)
+  dismiss(id)
+  selectedId.value = groups.value[0]?.rows[0]?.id ?? null
+}
+
+function restoreSession(): void {
+  if (selectedId.value) restore(selectedId.value)
 }
 
 /** Resuming replays the prior turns into the pane, so an adopted session opens in context. */
@@ -85,6 +128,40 @@ const visible = computed(() => {
   )
 })
 
+const groups = computed(() => {
+  const open = visible.value.filter((session) => !isDismissed(session))
+  const lifecycle = STAGE_ORDER.map((stage) => {
+    const rows = open.filter((session) => stageOf(session) === stage).sort(byUrgency)
+    return {
+      key: stage as string,
+      label: STAGE_LABEL[stage],
+      hint: STAGE_HINT[stage],
+      rows,
+      waiting: rows.filter((session) => session.status === 'needs-you').length
+    }
+  })
+
+  const closed = visible.value.filter(isDismissed).sort(byUrgency)
+  return [
+    ...lifecycle,
+    { key: 'closed', label: 'Closed', hint: 'Closed by you — reopening brings it back', rows: closed, waiting: 0 }
+  ].filter((group) => group.rows.length > 0)
+})
+
+/** Urgency cuts across the lifecycle axis, so it sorts within a stage rather than above it. */
+function byUrgency(a: SessionRecord, b: SessionRecord): number {
+  return rank(a) - rank(b)
+}
+
+function rank(session: SessionRecord): number {
+  if (session.status === 'needs-you') return 0
+  return session.status === 'done' ? 2 : 1
+}
+
+function changeStage(stage: Stage | null): void {
+  if (selectedId.value) setStage(selectedId.value, stage)
+}
+
 const selected = computed(
   () => rows.value.find((session) => session.id === selectedId.value) ?? null
 )
@@ -95,6 +172,9 @@ function applySessions(next: SessionRecord[]): void {
 }
 
 onMounted(async () => {
+  await hydrateState()
+  stopPrs = await hydratePrs()
+  workspace.value = await window.rolly.workspace()
   stopUpdates = window.rolly.onUpdate(applySessions)
   stopExits = window.rolly.pty.onExit(({ id }) => {
     liveIds.value = liveIds.value.filter((live) => live !== id)
@@ -103,12 +183,17 @@ onMounted(async () => {
   })
   applySessions(await window.rolly.list())
   liveIds.value = await window.rolly.pty.alive()
-  clock = setInterval(() => (now.value = Date.now()), 15_000)
+  clock = setInterval(() => {
+    now.value = Date.now()
+    // The exit event is the fast path; this is the one that cannot drift.
+    void window.rolly.pty.alive().then((ids) => (liveIds.value = ids))
+  }, 15_000)
 })
 
 onUnmounted(() => {
   stopUpdates?.()
   stopExits?.()
+  stopPrs?.()
   clearInterval(clock)
 })
 </script>
@@ -132,15 +217,27 @@ onUnmounted(() => {
       <input v-model="filter" type="search" placeholder="Filter by title, branch or folder" />
 
       <div class="list">
-        <SessionRow
-          v-for="session in visible"
-          :key="session.id"
-          :session="session"
-          :now="now"
-          :selected="session.id === selectedId"
-          :live="isLive(session.id)"
-          @click="selectedId = session.id"
-        />
+        <section v-for="group in groups" :key="group.key">
+          <button class="group" type="button" :title="group.hint" @click="toggleCollapsed(group.key)">
+            <span class="chevron">{{ isCollapsed(group.key) ? '▸' : '▾' }}</span>
+            <span class="label">{{ group.label }}</span>
+            <span class="count">{{ group.rows.length }}</span>
+            <span v-if="group.waiting" class="waiting">{{ group.waiting }} needs you</span>
+          </button>
+
+          <template v-if="!isCollapsed(group.key)">
+            <SessionRow
+              v-for="session in group.rows"
+              :key="session.id"
+              :session="session"
+              :now="now"
+              :selected="session.id === selectedId"
+              :live="isLive(session.id)"
+              @click="selectedId = session.id"
+            />
+          </template>
+        </section>
+
         <p v-if="!visible.length" class="none">
           {{ rows.length ? 'No sessions match.' : 'No sessions found yet.' }}
         </p>
@@ -153,11 +250,27 @@ onUnmounted(() => {
       :session="selected"
       :now="now"
       :live="selected ? isLive(selected.id) : false"
+      :stage="selected ? stageOf(selected) : undefined"
+      :stage-overridden="selected ? isOverridden(selected) : false"
+      :jira="selected ? jiraFor(selected) : undefined"
+      :dismissed="selected ? isDismissed(selected) : false"
       @adopt="adopt"
+      @close="closeSession"
+      @restore="restoreSession"
+      @stage="changeStage"
+      @create-jira="showJira = true"
+    />
+
+    <JiraDialog
+      :open="showJira"
+      :session="selected"
+      @close="showJira = false"
+      @created="ticketCreated"
     />
 
     <NewSessionDialog
       :open="showNew"
+      :workspace="workspace"
       :folders="folders"
       @start="startSession"
       @close="showNew = false"
@@ -234,6 +347,52 @@ input {
   overflow-y: auto;
   flex: 1;
   border-top: 1px solid var(--border);
+}
+
+.group {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text-faint);
+  gap: 7px;
+
+  &:hover {
+    color: var(--text-dim);
+  }
+
+  .chevron {
+    width: 10px;
+    font-size: 11px;
+    line-height: 1;
+  }
+
+  .label {
+    margin-right: auto;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .count {
+    font-size: 11px;
+  }
+
+  /** A collapsed stage would otherwise hide the one session waiting on him. */
+  .waiting {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--banner);
+    color: var(--needs-you);
+    font-size: 11px;
+  }
 }
 
 .none {

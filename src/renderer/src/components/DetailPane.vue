@@ -1,12 +1,38 @@
 <script setup lang="ts">
 import type { SessionRecord } from '@shared/types'
-import { STATUS_LABEL, modelName } from '@shared/types'
-import { relativeTime, homeRelative } from '@/time'
+import type { Stage } from '@shared/types'
+import { STAGE_LABEL, STAGE_ORDER, STATUS_LABEL, modelName } from '@shared/types'
+import { relativeTime } from '@/time'
+import { computed, ref, watch } from 'vue'
+import { sessionLinks } from '@shared/links'
+import { PR_GLYPH, prStateOf } from '@/prs'
 import TerminalView from './TerminalView.vue'
 import ContextMeter from './ContextMeter.vue'
 
-const props = defineProps<{ session: SessionRecord | null; now: number; live?: boolean }>()
-const emit = defineEmits<{ adopt: [] }>()
+const props = defineProps<{
+  session: SessionRecord | null
+  now: number
+  live?: boolean
+  stage?: Stage
+  stageOverridden?: boolean
+  jira?: { key: string; url: string }
+  dismissed?: boolean
+}>()
+const emit = defineEmits<{
+  adopt: []
+  close: []
+  restore: []
+  stage: [stage: Stage | null]
+  createJira: []
+}>()
+
+const links = computed(() => (props.session ? sessionLinks(props.session) : []))
+const expanded = ref(false)
+watch(() => props.session?.id, () => (expanded.value = false))
+
+function openLink(url: string): void {
+  void window.rolly.openExternal(url)
+}
 
 async function copyResume(): Promise<void> {
   if (props.session) await window.rolly.copyResume(props.session.id)
@@ -18,22 +44,52 @@ async function copyResume(): Promise<void> {
     <header>
       <h1>{{ session.title }}</h1>
       <span class="badge" :class="session.status">{{ STATUS_LABEL[session.status] }}</span>
+
+      <span class="stages" :title="stageOverridden ? 'Set by you' : 'Classified automatically'">
+        <button
+          v-for="option in STAGE_ORDER"
+          :key="option"
+          type="button"
+          :class="{ picked: option === stage }"
+          @click="emit('stage', option === stage && stageOverridden ? null : option)"
+        >
+          {{ STAGE_LABEL[option] }}
+        </button>
+        <span v-if="!stageOverridden" class="auto">auto</span>
+      </span>
       <div class="actions">
         <button type="button" @click="copyResume">Copy resume command</button>
-        <button v-if="!live" type="button" class="primary" @click="emit('adopt')">
+        <button v-if="dismissed" type="button" @click="emit('restore')">Reopen</button>
+        <button
+          v-else
+          type="button"
+          class="close"
+          :title="
+            live
+              ? 'Ends the terminal and clears the row. Reopen brings it back.'
+              : 'Clears the row. Reopen brings it back.'
+          "
+          @click="emit('close')"
+        >
+          Close
+        </button>
+        <button v-if="!live && !dismissed" type="button" class="primary" @click="emit('adopt')">
           Open here
         </button>
       </div>
     </header>
 
     <dl class="meta">
-      <div>
-        <dt>Branch</dt>
-        <dd>{{ session.gitBranch ?? '—' }}</dd>
-      </div>
-      <div class="folder">
-        <dt>Folder</dt>
-        <dd>{{ homeRelative(session.cwd) }}</dd>
+      <div class="jira">
+        <dt>Jira</dt>
+        <dd>
+          <button v-if="jira" class="ticket" type="button" :title="jira.url" @click="openLink(jira.url)">
+            {{ jira.key }} ↗
+          </button>
+          <button v-else class="ticket create" type="button" @click="emit('createJira')">
+            Create ticket
+          </button>
+        </dd>
       </div>
       <div>
         <dt>Model</dt>
@@ -52,6 +108,33 @@ async function copyResume(): Promise<void> {
         <dd>{{ relativeTime(session.lastActivity, now) }}</dd>
       </div>
     </dl>
+
+    <div v-if="links.length" class="prs">
+      <button
+        v-for="link in links"
+        :key="link.url"
+        :class="prStateOf(link.url)"
+        type="button"
+        :title="link.url"
+        @click="openLink(link.url)"
+      >
+        <span v-if="prStateOf(link.url)" class="glyph">{{ PR_GLYPH[prStateOf(link.url)!] }}</span>
+        {{ link.label }}
+        <span v-if="prStateOf(link.url)" class="state">{{ prStateOf(link.url) }}</span>
+        ↗
+      </button>
+    </div>
+
+    <blockquote
+      v-if="session.summary"
+      class="ask"
+      :class="{ expanded }"
+      :title="expanded ? '' : 'Click to expand'"
+      @click="expanded = !expanded"
+    >
+      <span class="who">You</span>
+      <p>{{ session.summary }}</p>
+    </blockquote>
 
     <TerminalView v-if="live" :key="session.id" :pty-id="session.id" />
 
@@ -112,6 +195,33 @@ h1 {
   }
 }
 
+.stages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+
+  button {
+    padding: 3px 9px;
+    border-radius: 6px;
+    color: var(--text-faint);
+    font-size: 11px;
+
+    &:hover {
+      color: var(--text);
+    }
+    &.picked {
+      border-color: var(--working);
+      color: var(--working);
+    }
+  }
+
+  .auto {
+    color: var(--text-faint);
+    font-size: 10px;
+  }
+}
+
 .actions {
   display: flex;
   margin-left: auto;
@@ -126,6 +236,15 @@ h1 {
     border-color: var(--working);
     color: var(--working);
   }
+
+  .close {
+    color: var(--text-dim);
+
+    &:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+  }
 }
 
 .meta {
@@ -139,8 +258,24 @@ h1 {
     min-width: 0;
   }
 
-  .folder {
+  .jira {
+    min-width: 180px;
     flex: 1;
+  }
+
+  .ticket {
+    padding: 3px 10px;
+    border-radius: 7px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+
+    &:hover {
+      border-color: var(--text-faint);
+    }
+    &.create {
+      color: var(--text-faint);
+    }
   }
 
   dt {
@@ -156,6 +291,8 @@ h1 {
     color: var(--text-faint);
   }
 
+
+
   dd {
     overflow: hidden;
     margin: 6px 0 0;
@@ -163,6 +300,87 @@ h1 {
     font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+.prs {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  padding: 11px 28px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+
+  button {
+    padding: 5px 11px;
+    border-radius: 7px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+
+    &:hover {
+      border-color: currentcolor;
+    }
+
+    &.open {
+      color: var(--done);
+    }
+    &.draft {
+      color: var(--text-faint);
+    }
+    &.merged {
+      color: var(--merged);
+    }
+    &.closed {
+      color: var(--danger);
+    }
+  }
+
+  .glyph {
+    font-size: 10px;
+  }
+
+  .state {
+    opacity: 0.65;
+  }
+}
+
+.ask {
+  display: flex;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 12px 28px 13px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-rail);
+  cursor: pointer;
+  gap: 12px;
+
+  &:hover {
+    background: var(--bg-hover);
+  }
+
+  .who {
+    padding-top: 1px;
+    color: var(--text-faint);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  p {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 0;
+    color: var(--text-dim);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: pre-wrap;
+  }
+
+  &.expanded p {
+    max-height: 30vh;
+    overflow-y: auto;
+    -webkit-line-clamp: unset;
   }
 }
 

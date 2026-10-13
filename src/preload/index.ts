@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { SessionRecord } from '@shared/types'
+import type { PrState, RollyState, SessionRecord } from '@shared/types'
 
 function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
   const listener = (_event: unknown, payload: T): void => handler(payload)
@@ -13,14 +13,45 @@ const api = {
   onUpdate: (handler: (sessions: SessionRecord[]) => void) =>
     subscribe<SessionRecord[]>('sessions:update', handler),
 
+  prs: {
+    list: (): Promise<Record<string, PrState>> => ipcRenderer.invoke('prs:list'),
+    onUpdate: (handler: (states: Record<string, PrState>) => void) =>
+      subscribe<Record<string, PrState>>('prs:update', handler)
+  },
+
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
+  workspace: (): Promise<string> => ipcRenderer.invoke('workspace:path'),
+
+  state: {
+    get: (): Promise<RollyState> => ipcRenderer.invoke('state:get'),
+    patch: (patch: Partial<RollyState>): Promise<RollyState> =>
+      ipcRenderer.invoke('state:patch', patch)
+  },
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open', url),
+
+  jira: {
+    hasCredentials: (): Promise<boolean> => ipcRenderer.invoke('jira:hasCredentials'),
+    saveCredentials: (credentials: {
+      site: string
+      email: string
+      token: string
+    }): Promise<string> => ipcRenderer.invoke('jira:saveCredentials', credentials),
+    clearCredentials: (): Promise<void> => ipcRenderer.invoke('jira:clearCredentials'),
+    projects: (): Promise<{ key: string; name: string; issueTypes: string[] }[]> =>
+      ipcRenderer.invoke('jira:projects'),
+    create: (
+      sessionId: string,
+      draft: { project: string; issueType: string; summary: string; description: string }
+    ): Promise<{ key: string; url: string }> =>
+      ipcRenderer.invoke('jira:create', sessionId, draft)
+  },
 
   pty: {
     start: (options: { cwd: string; resumeId?: string; name?: string }): Promise<string> =>
       ipcRenderer.invoke('pty:start', options),
     attach: (id: string): Promise<string> => ipcRenderer.invoke('pty:attach', id),
     alive: (): Promise<string[]> => ipcRenderer.invoke('pty:alive'),
-    kill: (id: string): Promise<void> => ipcRenderer.invoke('pty:kill', id),
+    close: (id: string): Promise<void> => ipcRenderer.invoke('pty:close', id),
     input: (id: string, data: string): void => ipcRenderer.send('pty:input', id, data),
     resize: (id: string, cols: number, rows: number): void =>
       ipcRenderer.send('pty:resize', id, cols, rows),

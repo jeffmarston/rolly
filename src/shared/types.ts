@@ -1,5 +1,8 @@
 export type SessionStatus = 'working' | 'needs-you' | 'idle' | 'done'
 
+/** Where a row sits in the lifecycle. Interrupts aren't a stage — they pin above these. */
+export type Stage = 'shape' | 'build' | 'verify'
+
 export interface SessionRecord {
   /** Claude Code's own session id — the handle `claude --resume` takes. */
   id: string
@@ -13,6 +16,10 @@ export interface SessionRecord {
   lastActivity?: string
   lastRole?: 'user' | 'assistant'
   messageCount: number
+  stage: Stage
+  /** Signals the stage was derived from, so the UI can explain itself. */
+  edits: number
+  pullRequestUrls: string[]
   model?: string
   effort?: string
   permissionMode?: string
@@ -24,7 +31,23 @@ export interface SessionRecord {
   pullRequests: number | null
 }
 
+export type PrState = 'open' | 'draft' | 'merged' | 'closed'
+
 export const STATUS_ORDER: SessionStatus[] = ['needs-you', 'working', 'idle', 'done']
+
+export const STAGE_ORDER: Stage[] = ['shape', 'build', 'verify']
+
+export const STAGE_LABEL: Record<Stage, string> = {
+  shape: 'Shape',
+  build: 'Build',
+  verify: 'Verify'
+}
+
+export const STAGE_HINT: Record<Stage, string> = {
+  shape: 'Discussion and design — nothing written yet',
+  build: 'Work in flight',
+  verify: 'Has a pull request open'
+}
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
   'needs-you': 'Needs you',
@@ -48,4 +71,16 @@ export function modelName(id?: string): string {
 export function contextShare(record: SessionRecord): number | undefined {
   if (!record.contextTokens || !record.contextLimit) return undefined
   return record.contextTokens / record.contextLimit
+}
+
+/** Rolly's own persisted state, written to userData/state.json by the main process. */
+export interface RollyState {
+  stageOverrides: Record<string, Stage>
+  collapsedGroups: Record<string, boolean>
+  window?: { width: number; height: number; x?: number; y?: number }
+  lastFolder?: string
+  /** Owned, not inferred: the ticket rolly opened for a session. */
+  jiraKeys: Record<string, { key: string; url: string }>
+  /** When a session was closed. Later activity outranks it and the row comes back. */
+  dismissed: Record<string, string>
 }

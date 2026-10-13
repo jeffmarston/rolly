@@ -5,6 +5,8 @@ import { sanitizedEnv } from './env'
 
 /** Enough scrollback to restore a pane after a window reload, without unbounded growth. */
 const BUFFER_LIMIT = 256 * 1024
+/** How long claude gets to exit on its own before it is killed outright. */
+const CLOSE_GRACE_MS = 3_000
 
 export interface StartOptions {
   cwd: string
@@ -84,6 +86,17 @@ export class PtyManager extends EventEmitter {
 
   kill(id: string, signal?: string): void {
     this.live.get(id)?.term.kill(signal)
+  }
+
+  /** SIGTERM so claude can flush, then SIGKILL: closing has to work even when it is wedged. */
+  close(id: string): void {
+    const entry = this.live.get(id)
+    if (!entry) return
+    entry.term.kill('SIGTERM')
+    setTimeout(() => {
+      // Identity, not presence: a resume may have taken this id in the meantime.
+      if (this.live.get(id) === entry) entry.term.kill('SIGKILL')
+    }, CLOSE_GRACE_MS)
   }
 
   ids(): string[] {

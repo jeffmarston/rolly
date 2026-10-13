@@ -1,16 +1,31 @@
 <script setup lang="ts">
 import type { SessionRecord } from '@shared/types'
 import { STATUS_LABEL } from '@shared/types'
+import { computed } from 'vue'
 import { contextShare } from '@shared/types'
+import { sessionLinks } from '@shared/links'
+import { PR_GLYPH, prStateOf } from '@/prs'
 import { relativeTime } from '@/time'
 import StatusDot from './StatusDot.vue'
 import ContextMeter from './ContextMeter.vue'
 
-defineProps<{ session: SessionRecord; now: number; selected: boolean; live?: boolean }>()
+const props = defineProps<{
+  session: SessionRecord
+  now: number
+  selected: boolean
+  live?: boolean
+}>()
+
+const links = computed(() => sessionLinks(props.session))
+
+function open(url: string, event: MouseEvent): void {
+  event.stopPropagation()
+  void window.rolly.openExternal(url)
+}
 </script>
 
 <template>
-  <button class="row" :class="{ selected }" type="button">
+  <button class="row" :class="{ selected, waiting: session.status === 'needs-you' }" type="button">
     <StatusDot :status="session.status" />
     <div class="body">
       <div class="line">
@@ -20,11 +35,25 @@ defineProps<{ session: SessionRecord; now: number; selected: boolean; live?: boo
       </div>
       <div class="line meta">
         <span class="status" :class="session.status">{{ STATUS_LABEL[session.status] }}</span>
-        <span v-if="session.gitBranch" class="branch">{{ session.gitBranch }}</span>
         <ContextMeter v-if="(contextShare(session) ?? 0) >= 0.7" :session="session" compact />
         <span v-if="session.pullRequests !== null" class="prs">{{ session.pullRequests }} PR</span>
       </div>
       <p v-if="session.summary" class="summary">{{ session.summary }}</p>
+      <div v-if="links.length" class="links">
+        <button
+          v-for="link in links.slice(0, 3)"
+          :key="link.url"
+          class="link"
+          :class="[link.kind, prStateOf(link.url)]"
+          type="button"
+          :title="prStateOf(link.url) ? `${prStateOf(link.url)} — ${link.url}` : link.url"
+          @click="open(link.url, $event)"
+        >
+          <span v-if="prStateOf(link.url)" class="glyph">{{ PR_GLYPH[prStateOf(link.url)!] }}</span>
+          {{ link.label }}
+        </button>
+        <span v-if="links.length > 3" class="more">+{{ links.length - 3 }}</span>
+      </div>
     </div>
   </button>
 </template>
@@ -45,6 +74,10 @@ defineProps<{ session: SessionRecord; now: number; selected: boolean; live?: boo
   }
   &.selected {
     background: var(--bg-raised);
+  }
+  /** Needs-you no longer has its own group, so the row carries the urgency itself. */
+  &.waiting {
+    box-shadow: inset 3px 0 0 var(--needs-you);
   }
 }
 
@@ -105,18 +138,6 @@ defineProps<{ session: SessionRecord; now: number; selected: boolean; live?: boo
   }
 }
 
-.branch {
-  overflow: hidden;
-  color: var(--text-faint);
-  font-family: var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  &::before {
-    content: '· ';
-  }
-}
-
 .prs {
   margin-left: auto;
 }
@@ -128,5 +149,57 @@ defineProps<{ session: SessionRecord; now: number; selected: boolean; live?: boo
   color: var(--text-dim);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 7px;
+  gap: 6px;
+}
+
+.link {
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+
+  &.pr {
+    border-color: transparent;
+    background: var(--bg-raised);
+    color: var(--text-dim);
+  }
+
+  &.open {
+    color: var(--done);
+  }
+  &.draft {
+    color: var(--text-faint);
+  }
+  /** Merged and closed are done with: dimmed so open work reads first. */
+  &.merged {
+    color: var(--merged);
+    opacity: 0.8;
+  }
+  &.closed {
+    color: var(--danger);
+    opacity: 0.8;
+    text-decoration: line-through;
+  }
+
+  .glyph {
+    margin-right: 1px;
+    font-size: 9px;
+  }
+
+  &:hover {
+    border-color: var(--text-faint);
+  }
+}
+
+.more {
+  align-self: center;
+  color: var(--text-faint);
+  font-size: 11px;
 }
 </style>

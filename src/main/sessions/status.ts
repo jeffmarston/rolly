@@ -14,10 +14,10 @@ export function inferStatus(record: SessionDraft, now = Date.now()): SessionStat
 
   if (age < STREAMING_MS) return 'working'
   if (record.lastRole === 'user' && age < STALE_MS) return 'working'
-  if (endsInQuestion(record.summary)) return 'needs-you'
+  if (endsInQuestion(record.lastReply)) return 'needs-you'
   return 'idle'
 }
 
-function endsInQuestion(summary?: string): boolean {
-  return !!summary?.trimEnd().endsWith('?')
+function endsInQuestion(reply?: string): boolean {
+  return !!reply?.trimEnd().endsWith('?')
 }

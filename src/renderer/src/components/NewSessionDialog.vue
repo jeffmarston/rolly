@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { homeRelative } from '@/time'
 
-const props = defineProps<{ open: boolean; folders: string[] }>()
+const props = defineProps<{ open: boolean; folders: string[]; workspace: string }>()
 const emit = defineEmits<{
   start: [payload: { cwd: string; name: string }]
   close: []
@@ -55,7 +55,8 @@ function start(): void {
       <ul class="folders">
         <li v-for="folder in folders" :key="folder">
           <button type="button" :class="{ picked: folder === cwd }" @click="cwd = folder">
-            {{ homeRelative(folder) }}
+            {{ folder === workspace ? 'Rolly workspace' : homeRelative(folder) }}
+            <span v-if="folder === workspace" class="note">no repo — read a repo's CLAUDE.md before editing it</span>
           </button>
         </li>
         <li v-if="cwd && !folders.includes(cwd)">
@@ -142,6 +143,14 @@ function start(): void {
     &.picked {
       background: var(--bg-raised);
       color: var(--text);
+    }
+
+    .note {
+      display: block;
+      margin-top: 2px;
+      color: var(--text-faint);
+      font-family: var(--sans);
+      font-size: 10px;
     }
   }
 }
