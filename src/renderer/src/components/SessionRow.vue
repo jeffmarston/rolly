@@ -34,7 +34,9 @@ function open(url: string, event: MouseEvent): void {
         <span class="age">{{ relativeTime(session.lastActivity, now) }}</span>
       </div>
       <div class="line meta">
-        <span class="status" :class="session.status">{{ STATUS_LABEL[session.status] }}</span>
+        <span class="status" :class="session.status">{{
+          session.statusReason ?? STATUS_LABEL[session.status]
+        }}</span>
         <ContextMeter v-if="(contextShare(session) ?? 0) >= 0.7" :session="session" compact />
         <span v-if="session.pullRequests !== null" class="prs">{{ session.pullRequests }} PR</span>
       </div>

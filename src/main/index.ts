@@ -4,6 +4,7 @@ import type { RollyState, SessionRecord } from '@shared/types'
 import { SessionWatcher } from './sessions/watcher'
 import { PtyManager } from './pty/manager'
 import { PullRequestPoller } from './prs'
+import { HookServer } from './hooks/server'
 import { installMenu } from './menu'
 import { flushState, patchState, readState } from './state'
 import { ensureWorkspace, workspaceDir } from './workspace'
@@ -23,6 +24,7 @@ app.setName('Rolly')
 
 const watcher = new SessionWatcher()
 const ptys = new PtyManager()
+const hooks = new HookServer()
 const prs = new PullRequestPoller(() =>
   watcher.snapshot().flatMap((session) => session.pullRequestUrls)
 )
@@ -78,6 +80,10 @@ function createWindow(): void {
   }
 }
 
+function reported(sessions: SessionRecord[]): SessionRecord[] {
+  return sessions.map((session) => hooks.apply(session))
+}
+
 function send(channel: string, payload: unknown): void {
   if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
 }
@@ -100,7 +106,8 @@ app.whenReady().then(() => {
   ipcMain.handle('state:patch', (_event, patch: Partial<RollyState>) => patchState(patch))
   ipcMain.handle('workspace:path', () => workspaceDir())
 
-  ipcMain.handle('sessions:list', () => watcher.snapshot())
+  ipcMain.handle('sessions:list', () => reported(watcher.snapshot()))
+  ipcMain.handle('hooks:info', () => ({ url: hooks.url, listening: hooks.listening }))
   ipcMain.handle('prs:list', () => prs.snapshot())
   ipcMain.handle('jira:hasCredentials', () => hasCredentials())
   ipcMain.handle('jira:saveCredentials', async (_event, credentials: JiraCredentials) => {
@@ -153,7 +160,7 @@ app.whenReady().then(() => {
   ptys.on('exit', (id: string, code: number) => send('pty:exit', { id, code }))
 
   watcher.on('sessions', (sessions: SessionRecord[]) => {
-    send('sessions:update', sessions)
+    send('sessions:update', reported(sessions))
     prs.nudge()
   })
   watcher.on('error', (error) => console.error('[watcher]', error))
@@ -162,6 +169,11 @@ app.whenReady().then(() => {
   prs.on('states', (states: Record<string, string>) => send('prs:update', states))
   prs.on('error', (error) => console.error('[prs]', error))
   prs.start()
+
+  // A hook lands between watcher ticks, so push the corrected rail straight out.
+  hooks.on('status', () => send('sessions:update', reported(watcher.snapshot())))
+  hooks.on('error', (error) => console.error('[hooks]', error))
+  hooks.start()
 
   createWindow()
   app.on('activate', () => {
@@ -181,6 +193,7 @@ app.on('before-quit', (event) => {
   flushState()
   void watcher.stop()
   prs.stop()
+  hooks.stop()
   if (quitting || ptys.ids().length === 0) return
   event.preventDefault()
   quitting = true

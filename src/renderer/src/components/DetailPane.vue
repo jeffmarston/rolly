@@ -43,7 +43,9 @@ async function copyResume(): Promise<void> {
   <section v-if="session" class="detail">
     <header>
       <h1>{{ session.title }}</h1>
-      <span class="badge" :class="session.status">{{ STATUS_LABEL[session.status] }}</span>
+      <span class="badge" :class="session.status">{{
+        session.statusReason ?? STATUS_LABEL[session.status]
+      }}</span>
 
       <span class="stages" :title="stageOverridden ? 'Set by you' : 'Classified automatically'">
         <button

@@ -27,6 +27,8 @@ export interface SessionRecord {
   contextTokens?: number
   contextLimit?: number
   status: SessionStatus
+  /** Why, when a hook said so — 'Rate limited', 'Waiting on permission'. */
+  statusReason?: string
   /** null until M4 wires `gh`; the rail renders it as unknown. */
   pullRequests: number | null
 }

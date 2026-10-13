@@ -13,6 +13,10 @@ const api = {
   onUpdate: (handler: (sessions: SessionRecord[]) => void) =>
     subscribe<SessionRecord[]>('sessions:update', handler),
 
+  hooks: {
+    info: (): Promise<{ url: string; listening: boolean }> => ipcRenderer.invoke('hooks:info')
+  },
+
   prs: {
     list: (): Promise<Record<string, PrState>> => ipcRenderer.invoke('prs:list'),
     onUpdate: (handler: (states: Record<string, PrState>) => void) =>

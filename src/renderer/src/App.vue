@@ -22,6 +22,7 @@ import StatusDot from './components/StatusDot.vue'
 import DetailPane from './components/DetailPane.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
 import JiraDialog from './components/JiraDialog.vue'
+import HooksDialog from './components/HooksDialog.vue'
 
 const sessions = ref<SessionRecord[]>([])
 /** Rows for sessions rolly just spawned, until the watcher sees their transcript. */
@@ -33,6 +34,8 @@ const now = ref(Date.now())
 const showNew = ref(false)
 const workspace = ref('')
 const showJira = ref(false)
+const showHooks = ref(false)
+const hookInfo = ref<{ url: string; listening: boolean }>()
 
 function ticketCreated(issue: { key: string; url: string }): void {
   if (selectedId.value) setJira(selectedId.value, issue)
@@ -175,6 +178,7 @@ onMounted(async () => {
   await hydrateState()
   stopPrs = await hydratePrs()
   workspace.value = await window.rolly.workspace()
+  hookInfo.value = await window.rolly.hooks.info()
   stopUpdates = window.rolly.onUpdate(applySessions)
   stopExits = window.rolly.pty.onExit(({ id }) => {
     liveIds.value = liveIds.value.filter((live) => live !== id)
@@ -243,7 +247,12 @@ onUnmounted(() => {
         </p>
       </div>
 
-      <footer>Watching ~/.claude/projects · status inferred until M4</footer>
+      <footer>
+        <span>Watching ~/.claude/projects</span>
+        <button type="button" class="hooks" @click="showHooks = true">
+          {{ hookInfo?.listening ? 'Exact status' : 'Status inferred' }}
+        </button>
+      </footer>
     </aside>
 
     <DetailPane
@@ -260,6 +269,8 @@ onUnmounted(() => {
       @stage="changeStage"
       @create-jira="showJira = true"
     />
+
+    <HooksDialog :open="showHooks" :info="hookInfo" @close="showHooks = false" />
 
     <JiraDialog
       :open="showJira"
@@ -402,9 +413,24 @@ input {
 }
 
 footer {
+  display: flex;
+  align-items: center;
   padding: 12px 18px;
   border-top: 1px solid var(--border);
   color: var(--text-faint);
   font-size: 11px;
+  gap: 8px;
+
+  .hooks {
+    margin-left: auto;
+    padding: 3px 9px;
+    border-radius: 6px;
+    color: inherit;
+    font-size: 11px;
+
+    &:hover {
+      color: var(--text-dim);
+    }
+  }
 }
 </style>
