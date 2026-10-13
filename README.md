@@ -101,14 +101,40 @@ tier (200k, 1M) the peak fits inside. A session that has been past 200k is
 provably on the larger window. The rail shows a chip only once a session passes
 70%, amber to 90% and red beyond.
 
-## Status is inferred, for now
+## Status
 
 `sessions/status.ts` guesses *working / needs-you / idle* from transcript shape
 alone — recency, whose turn is last, and whether the reply trails off in a
-question. That keeps M1 working with zero setup, at the cost of precision: an
-abandoned session whose last reply happened to ask something still reads as
-"needs you". M4 replaces the guess with hook events, and `done` stays unused
-until then.
+question. It needs no setup and it is wrong often enough to notice: an
+abandoned session whose last reply happened to ask something reads as "needs
+you" forever.
+
+**Hooks replace the guess.** Rolly listens on `127.0.0.1:7878`, with a random
+per-launch token in the path, and Claude Code posts events to it. The handler
+answers before it parses the body, because a hook blocks the session until the
+request returns — the response measures about half a millisecond.
+
+Working and idle are the least of it; the transcript already implies those.
+What it can't record is a session **blocked on a permission dialog**, or one
+killed by a `StopFailure` — a rate-limited session now says "Rate limited"
+instead of sitting there looking idle. That reason shows in the row and the
+header badge.
+
+Hook truth only outranks the transcript **while it is newer than it**, so a
+restart with an empty map falls back to inference by itself, and so does a
+session that was running before the hooks were installed.
+
+Enabling it is a copy-paste: the rail footer opens a dialog with the config.
+Writing it into `~/.claude/settings.json` from rolly was built and dropped —
+the auto-mode classifier blocks code that rewrites Claude Code's own settings,
+which is a fair call.
+
+Two things to know before installing it globally. `SessionStart` was never
+observed firing. And with rolly closed, Claude prints one warning per session
+(`connect ECONNREFUSED`) — harmless, since a connection failure is a
+non-blocking error and the run completes normally, but visible. A `command`
+hook with `async: true` and `curl … 2>/dev/null || true` is the silent
+alternative, at a subprocess per event.
 
 ## The lifecycle axis
 
@@ -244,12 +270,12 @@ Delete any test transcripts afterwards; they show up as rows like anything else.
 - **M2 — the terminal.** ✅ xterm.js over an app-owned pty; "New session".
 - **M3 — adopt.** ✅ "Open here" resumes any session into a pane, whether or not
   something else has it open.
-- **M4 — hooks.** Localhost endpoint for exact status, replacing the inference
-  in `sessions/status.ts`.
+- **M4 — hooks.** ✅ localhost endpoint; exact status, including the states no
+  transcript records.
 - **M5 — Windows.** Packaging, and `sessions/paths.ts` is the only file that
   should need to care.
 
-Shipped since: the Shape/Build/Verify axis, Jira ticket ownership, PR state
+Shipped alongside: the Shape/Build/Verify axis, Jira ticket ownership, PR state
 polling, and closing that works.
 
 Deliberately not built yet: a git diff pane (the split wasn't convincing — the
