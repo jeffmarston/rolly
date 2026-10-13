@@ -59,13 +59,34 @@ process picks up the other's turns. So there is no ownership check and no "is
 this busy?" guess: `Open here` is unconditional, and it reads as taking the
 session over because that is what it does.
 
+The one thing the pane does have to handle: **a folder rolly hasn't opened
+before shows a trust prompt** as its first screen, answered in the terminal like
+any other prompt.
+
 Forking was built and then removed once that turned out to be unnecessary. If
 it's ever wanted, `--fork-session --session-id <new>` does branch onto an id
 rolly picks, so correlation survives a fork.
 
-The one thing the pane does have to handle: **a folder rolly hasn't opened
-before shows a trust prompt** as its first screen, answered in the terminal like
-any other prompt.
+### Closing
+
+`/exit` is text typed at a prompt, so it does nothing while Claude is mid-turn
+or sitting on a permission prompt — which is most of the times you want out.
+**Close** signals the process instead: SIGTERM so claude can flush, SIGKILL
+three seconds later if it is wedged. The timer compares pty *identity*, not the
+id, so a resume that claimed the same id in between can't be killed by a stale
+timer.
+
+Close also clears the row, because "close this session" means get it off the
+list. Nothing is destroyed: closed rows collect in a **Closed** group and
+**Reopen** restores them. Dismissal stores a *timestamp*, not a flag, so any
+transcript activity newer than it un-hides the row — a session cannot go quietly
+missing from the fleet while it is still working.
+
+Two rolly instances can run at once, each with its own ptys, so one window's
+"live" badge says nothing about the other's. The badge is driven by the exit
+event and **reconciled against `pty.alive()` every 15s**; the event was once
+observed dropping, leaving a row claiming live with no process behind it.
+
 
 ## Model, effort and context
 
@@ -88,6 +109,70 @@ question. That keeps M1 working with zero setup, at the cost of precision: an
 abandoned session whose last reply happened to ask something still reads as
 "needs you". M4 replaces the guess with hook events, and `done` stays unused
 until then.
+
+## The lifecycle axis
+
+The rail groups by **Shape / Build / Verify** — figuring it out, in flight, has
+a PR open — derived from transcript shape alone (`sessions/stage.ts`). It is a
+heuristic and a wrong call is correctable: picking a stage by hand pins it, and
+the header says `auto` until you do.
+
+Needs-you is *not* a fourth group. Urgency cuts across the axis, so it shows as
+an accent down the row and sorts to the top of its own stage, with finished work
+sinking to the bottom. A stage header carries a `n needs you` badge when
+collapsed — otherwise folding a stage would hide the one session waiting on you.
+
+## Rolly's own folder
+
+App state is a `state.json` in Electron's `userData` — stage overrides,
+collapsed groups, Jira keys, dismissals, window bounds — written through a 250ms
+debounce.
+
+Sessions started from rolly run in `userData/workspace`, **not** a repository,
+so work spanning several repos has a neutral home and rolly never edits a repo
+by accident. On first run that folder is seeded with a `CLAUDE.md` and a memory
+dir, so sessions rolly creates share one memory instead of a per-repo one. The
+memory path has to be derived the way Claude Code slugs a cwd: every separator
+**and space** becomes a dash.
+
+Note for anything writing state from the renderer: a Vue reactive proxy is not
+structured-cloneable, so `ipcRenderer.invoke` rejects on one — silently, if the
+call is `void`ed. Everything crossing IPC goes through `toRaw()`.
+
+## Jira
+
+A Jira key taken from the branch named the same ticket for every session sharing
+a working tree, and was simply wrong for sessions doing something else. There is
+no per-session key anywhere in a transcript to replace it with — so rolly stops
+inferring and **owns** the mapping: it creates the ticket itself and records
+`sessionId -> {key, url}` in its own state.
+
+Credentials go through `safeStorage` (the OS keychain) into `jira.bin`, never
+`state.json`, and are verified against `/rest/api/3/myself` before being saved.
+Projects and their issue types are read live from `/project/search`. The draft
+is composed from what rolly already knows — title as summary, your last prompt
+plus PR URLs as description — and **every ticket goes through an editable
+preview**, because creating one writes to the team's board.
+
+Descriptions are converted to Atlassian Document Format; the v3 API takes
+nothing else.
+
+`claude -p` has **no** Atlassian MCP access — connectors are interactive-only —
+which is what ruled out drafting tickets with a headless Claude.
+
+## Pull requests
+
+PR URLs are pulled out of the transcript by correlating `gh pr create` tool_use
+ids with their results, and the discriminator is the URL **alone on its own
+line** — matching the command too loosely picks up grep output, too strictly
+misses compound commands.
+
+State is polled with **one batched GraphQL call for every known PR every 30s**,
+aliased per PR; a `gh pr view` each would be a subprocess apiece and burn the
+rate limit far faster. Open is green, draft grey, merged purple, closed red and
+struck through. It is never persisted — a restart re-polls rather than showing
+yesterday's answer — and `gh` runs under a login shell for the same PATH reason
+the pty does.
 
 ## Icon and packaging
 
@@ -126,7 +211,32 @@ npx esbuild scripts/pty-smoke.ts --bundle --platform=node --format=cjs \
 
 `ROLLY_FOLDER=<path>` makes the New-session folder picker return that path
 instead of opening a native dialog, which is what lets the UI be driven from a
-harness.
+harness. Other probes follow the same bundle-then-run shape:
+`stage-probe` and `summary-probe` replay the classifier over real transcripts,
+`pr-probe` runs the PR poller headlessly, `two-writers` is the experiment behind
+the unconditional **Open here**.
+
+### Driving the UI
+
+There is no way to tell whether a desktop UI actually renders without looking at
+it, and `screencapture` is black without screen-recording permission. Launch
+with a debugging port and go through the Chrome DevTools Protocol:
+
+```bash
+open release/mac-arm64/Rolly.app --args --remote-debugging-port=9444
+curl -s http://localhost:9444/json          # find the page target
+```
+
+Connect to `webSocketDebuggerUrl` with Node's built-in `WebSocket` — no `ws`
+dependency — and use `Page.captureScreenshot`, `Runtime.evaluate` to query and
+click, `Input.insertText` to type into a pane for real. Setting a Vue `v-model`
+input needs the native setter plus a dispatched `input` event. This caught a
+mangled file path and a wrapping metadata row that type-check and build both
+passed.
+
+**Don't repackage or quit while a session is live** — quitting SIGTERMs rolly's
+children and kills work mid-turn. Check for `claude` under the app's pid first.
+Delete any test transcripts afterwards; they show up as rows like anything else.
 
 ## Roadmap
 
@@ -134,6 +244,14 @@ harness.
 - **M2 — the terminal.** ✅ xterm.js over an app-owned pty; "New session".
 - **M3 — adopt.** ✅ "Open here" resumes any session into a pane, whether or not
   something else has it open.
-- **M4 — hooks.** Localhost endpoint; exact status, plus PR counts via `gh`.
+- **M4 — hooks.** Localhost endpoint for exact status, replacing the inference
+  in `sessions/status.ts`.
 - **M5 — Windows.** Packaging, and `sessions/paths.ts` is the only file that
   should need to care.
+
+Shipped since: the Shape/Build/Verify axis, Jira ticket ownership, PR state
+polling, and closing that works.
+
+Deliberately not built yet: a git diff pane (the split wasn't convincing — the
+diff is folders across several repos, not file-by-file, and VSCode already does
+it well), a review queue over open PRs, and a scheduled briefing agent.
