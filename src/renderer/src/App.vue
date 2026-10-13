@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import type { SessionRecord, SessionStatus, Stage } from '@shared/types'
-import { STAGE_HINT, STAGE_LABEL, STAGE_ORDER, STATUS_LABEL, STATUS_ORDER } from '@shared/types'
+import type { SessionRecord, Stage } from '@shared/types'
+import { STAGE_HINT, STAGE_LABEL, STAGE_ORDER } from '@shared/types'
 import { release } from './terminals'
 import { hydratePrs } from './prs'
 import {
@@ -18,7 +18,6 @@ import {
 import BoardCard from './components/BoardCard.vue'
 import BoardColumn from './components/BoardColumn.vue'
 import CloseRail from './components/CloseRail.vue'
-import StatusDot from './components/StatusDot.vue'
 import DetailPane from './components/DetailPane.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
 import JiraDialog from './components/JiraDialog.vue'
@@ -126,21 +125,19 @@ function restoreSession(): void {
 }
 
 /** Resuming replays the prior turns into the pane, so an adopted session opens in context. */
-async function adopt(): Promise<void> {
-  const session = selected.value
+async function adopt(id?: string): Promise<void> {
+  const session = rows.value.find((row) => row.id === (id ?? selectedId.value))
   if (!session?.cwd || isLive(session.id)) return
 
   await window.rolly.pty.start({ cwd: session.cwd, resumeId: session.id })
   liveIds.value = [...liveIds.value, session.id]
 }
 
-const counts = computed(() =>
-  STATUS_ORDER.map((status) => ({
-    status,
-    label: STATUS_LABEL[status],
-    count: rows.value.filter((session) => session.status === status).length
-  }))
-)
+/** Picking a card opens it — a closed one stays closed until it is reopened. */
+function pick(session: SessionRecord): void {
+  selectedId.value = session.id
+  if (!isDismissed(session)) void adopt(session.id)
+}
 
 const visible = computed(() => {
   const needle = filter.value.trim().toLowerCase()
@@ -225,14 +222,6 @@ onUnmounted(() => {
   <div class="shell">
     <header class="top">
       <h1>Rolly</h1>
-      <ul class="counts">
-        <li v-for="entry in counts" :key="entry.status">
-          <StatusDot :status="entry.status as SessionStatus" />
-          <strong>{{ entry.count }}</strong>
-          <span>{{ entry.label }}</span>
-        </li>
-      </ul>
-
       <input v-model="filter" type="search" placeholder="Filter by title, branch or folder" />
       <button type="button" class="new" @click="showNew = true">New session</button>
     </header>
@@ -255,7 +244,7 @@ onUnmounted(() => {
           :now="now"
           :selected="session.id === selectedId"
           :live="isLive(session.id)"
-          @pick="selectedId = session.id"
+          @pick="pick(session)"
           @drag="dragging = $event"
         />
       </BoardColumn>
@@ -298,7 +287,7 @@ onUnmounted(() => {
       :stage-overridden="selected ? isOverridden(selected) : false"
       :jira="selected ? jiraFor(selected) : undefined"
       :dismissed="selected ? isDismissed(selected) : false"
-      @adopt="adopt"
+      @adopt="adopt()"
       @close="closeSession"
       @restore="restoreSession"
       @stage="changeStage"
@@ -377,21 +366,6 @@ onUnmounted(() => {
   }
 }
 
-.counts {
-  display: flex;
-  margin: 0;
-  padding: 0;
-  gap: 14px;
-  color: var(--text-dim);
-  font-size: 12px;
-  list-style: none;
-
-  li {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-}
 
 .board {
   display: flex;
