@@ -49,7 +49,7 @@ async function copyResume(): Promise<void> {
         session.statusReason ?? STATUS_LABEL[session.status]
       }}</span>
 
-      <span class="stages" :title="stageOverridden ? 'Set by you' : 'Classified automatically'">
+      <span v-if="!compact" class="stages" :title="stageOverridden ? 'Set by you' : 'Classified automatically'">
         <button
           v-for="option in STAGE_ORDER"
           :key="option"

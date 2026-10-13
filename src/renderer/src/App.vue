@@ -36,6 +36,10 @@ const showJira = ref(false)
 const showHooks = ref(false)
 const hookInfo = ref<{ url: string; listening: boolean }>()
 const dragging = ref('')
+/** Clicking a card spawns a claude, so cap how many can be awake at once. */
+const MAX_LIVE = 6
+/** Least recently focused first; eviction starts from the front. */
+const focusOrder = ref<string[]>([])
 const showClosed = ref(false)
 
 const STAGE_ACCENT: Record<Stage, string> = {
@@ -129,13 +133,31 @@ async function adopt(id?: string): Promise<void> {
   const session = rows.value.find((row) => row.id === (id ?? selectedId.value))
   if (!session?.cwd || isLive(session.id)) return
 
+  await sleepExcess(session.id)
   await window.rolly.pty.start({ cwd: session.cwd, resumeId: session.id })
   liveIds.value = [...liveIds.value, session.id]
+}
+
+/**
+ * Closes the stalest terminals to stay under the cap. A session mid-turn is
+ * never evicted — going over is cheaper than killing work.
+ */
+async function sleepExcess(incoming: string): Promise<void> {
+  const live = liveIds.value.filter((id) => id !== incoming)
+  const excess = live.length + 1 - MAX_LIVE
+  if (excess <= 0) return
+
+  const stalest = live
+    .filter((id) => rows.value.find((row) => row.id === id)?.status !== 'working')
+    .sort((a, b) => focusOrder.value.indexOf(a) - focusOrder.value.indexOf(b))
+
+  for (const id of stalest.slice(0, excess)) await window.rolly.pty.close(id)
 }
 
 /** Picking a card opens it — a closed one stays closed until it is reopened. */
 function pick(session: SessionRecord): void {
   selectedId.value = session.id
+  focusOrder.value = [...focusOrder.value.filter((id) => id !== session.id), session.id]
   if (!isDismissed(session)) void adopt(session.id)
 }
 
@@ -235,6 +257,7 @@ onUnmounted(() => {
         :rows="column.rows"
         :waiting="column.waiting"
         :accent="column.accent"
+        :active="!!selected && !isDismissed(selected) && stageOf(selected) === column.stage"
         @drop="moveTo($event, column.stage)"
       >
         <BoardCard
@@ -295,7 +318,10 @@ onUnmounted(() => {
     />
 
     <footer class="status">
-      <span>{{ visible.length }} of {{ rows.length }} sessions · watching ~/.claude/projects</span>
+      <span>
+        {{ visible.length }} of {{ rows.length }} sessions · {{ liveIds.length }}/{{ MAX_LIVE }}
+        awake · watching ~/.claude/projects
+      </span>
       <button type="button" class="hooks" @click="showHooks = true">
         {{ hookInfo?.listening ? 'Exact status' : 'Status inferred' }}
       </button>

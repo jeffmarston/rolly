@@ -8,6 +8,8 @@ defineProps<{
   rows: SessionRecord[]
   waiting: number
   accent: string
+  /** The focused session lives here — the bar below ties it to the pane. */
+  active: boolean
 }>()
 const emit = defineEmits<{ drop: [id: string] }>()
 
@@ -40,6 +42,8 @@ function receive(event: DragEvent): void {
       <slot />
       <p v-if="!rows.length" class="none">{{ over ? 'Drop here' : 'Nothing here' }}</p>
     </div>
+
+    <span class="tie" :style="{ background: active ? accent : 'transparent' }" />
   </section>
 </template>
 
@@ -49,7 +53,7 @@ function receive(event: DragEvent): void {
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  padding: 12px 12px 8px;
+  padding: 12px 12px 0;
   border: 1px solid var(--border);
   border-radius: 13px;
   background: var(--bg-rail);
@@ -100,6 +104,13 @@ header {
   flex: 1;
   flex-direction: column;
   gap: 7px;
+}
+
+.tie {
+  height: 3px;
+  flex: 0 0 auto;
+  margin-top: 8px;
+  border-radius: 2px 2px 0 0;
 }
 
 .none {
