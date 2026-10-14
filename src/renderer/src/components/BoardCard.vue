@@ -43,22 +43,48 @@ function start(event: DragEvent): void {
   padding: 11px 13px;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: var(--bg-raised);
+  background:
+    var(--sheen),
+    linear-gradient(180deg, #232327 0%, #1b1b1e 100%);
+  box-shadow: var(--edge), var(--lift-1);
   cursor: grab;
   gap: 9px;
+  transition:
+    transform 110ms ease,
+    box-shadow 110ms ease,
+    border-color 110ms ease;
 
   &:active {
     cursor: grabbing;
+    box-shadow: inset 0 2px 6px rgb(0 0 0 / 50%);
+    transform: translateY(1px) scale(0.997);
   }
   &:hover {
     border-color: var(--text-faint);
+    box-shadow: var(--edge-strong), var(--lift-2);
+    transform: translateY(-1px);
   }
   &.selected {
     border-color: var(--working);
+    box-shadow:
+      var(--edge-strong),
+      var(--lift-2),
+      0 0 0 1px color-mix(in srgb, var(--working) 45%, transparent),
+      0 0 18px color-mix(in srgb, var(--working) 22%, transparent);
   }
   &.waiting {
     border-color: color-mix(in srgb, var(--needs-you) 45%, var(--border));
-    background: color-mix(in srgb, var(--needs-you) 7%, var(--bg-raised));
+    background:
+      var(--sheen),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--needs-you) 13%, #232327) 0%,
+        color-mix(in srgb, var(--needs-you) 5%, #1b1b1e) 100%
+      );
+    box-shadow:
+      var(--edge-strong),
+      var(--lift-1),
+      0 0 16px color-mix(in srgb, var(--needs-you) 14%, transparent);
   }
 }
 

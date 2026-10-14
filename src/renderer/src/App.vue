@@ -309,7 +309,11 @@ onUnmounted(() => {
       <span
         v-for="column in lifecycle"
         :key="column.stage"
-        :style="{ background: activeStage === column.stage ? column.accent : 'transparent' }"
+        :style="
+          activeStage === column.stage
+            ? { background: column.accent, boxShadow: `0 0 14px 1px ${column.accent}` }
+            : { background: 'transparent' }
+        "
       />
       <i v-if="showClosed" class="shelf-gap" />
       <i class="rail-gap" />
@@ -371,6 +375,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   padding: 14px 18px;
+  background: linear-gradient(180deg, #1a1a1e 0%, rgb(18 18 21 / 0%) 100%);
   gap: 18px;
   -webkit-app-region: drag;
 
@@ -390,7 +395,8 @@ onUnmounted(() => {
     padding: 7px 11px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: var(--bg-rail);
+    background: linear-gradient(180deg, #121215 0%, #17171a 100%);
+    box-shadow: inset 0 1px 3px rgb(0 0 0 / 55%);
 
     &::placeholder {
       color: var(--text-faint);
@@ -473,6 +479,9 @@ onUnmounted(() => {
     height: 3px;
     flex: 1;
     border-radius: 2px;
+    transition:
+      background 160ms ease,
+      box-shadow 160ms ease;
   }
 
   .rail-gap {

@@ -88,7 +88,8 @@ function open(url: string): void {
   flex-direction: column;
   padding: 16px 18px 14px;
   border-left: 1px solid var(--border);
-  background: var(--bg-rail);
+  background: linear-gradient(195deg, #1c1c20 0%, #141416 100%);
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 5%), -10px 0 24px rgb(0 0 0 / 35%);
   gap: 18px;
 
   h1 {
@@ -154,9 +155,10 @@ h2 {
   max-width: 100%;
   padding: 4px 9px;
   overflow: hidden;
-  border-color: transparent;
+  border-color: rgb(255 255 255 / 6%);
   border-radius: 6px;
-  background: var(--bg-raised);
+  background: linear-gradient(180deg, #26262b 0%, #1d1d21 100%);
+  box-shadow: var(--edge), var(--lift-1);
   color: var(--text-dim);
   font-family: var(--mono);
   font-size: 11px;

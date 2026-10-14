@@ -30,7 +30,7 @@ function receive(event: DragEvent): void {
     @drop.prevent="receive"
   >
     <header>
-      <span class="dot" :style="{ background: accent }" />
+      <span class="dot" :style="{ background: accent, boxShadow: `0 0 10px 1px ${accent}` }" />
       <h2>{{ label }}</h2>
       <span class="count">{{ rows.length }}</span>
       <span v-if="waiting" class="waiting">{{ waiting }} needs you</span>
@@ -53,11 +53,26 @@ function receive(event: DragEvent): void {
   padding: 12px 12px 8px;
   border: 1px solid var(--border);
   border-radius: 13px;
-  background: var(--bg-rail);
+  /* Recessed: the well the cards sit in, so the cards read as on top of it. */
+  background: linear-gradient(180deg, #141417 0%, #17171a 100%);
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 55%),
+    0 1px 0 rgb(255 255 255 / 4%);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 
   &.over {
     border-color: var(--working);
-    background: color-mix(in srgb, var(--working) 8%, var(--bg-rail));
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--working) 10%, #141417) 0%,
+      color-mix(in srgb, var(--working) 4%, #17171a) 100%
+    );
+    box-shadow:
+      inset 0 1px 3px rgb(0 0 0 / 40%),
+      0 0 0 1px color-mix(in srgb, var(--working) 35%, transparent),
+      0 0 22px color-mix(in srgb, var(--working) 18%, transparent);
   }
 }
 
