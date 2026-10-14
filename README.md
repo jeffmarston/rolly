@@ -1,7 +1,9 @@
 # rolly
 
-A fleet view for Claude Code sessions. One rail showing every session across
-every repo, sorted by who needs you.
+A fleet view for Claude Code sessions. Every session across every repo on one
+board, placed by how far the work has got and sorted by who needs you.
+
+![The rolly board: Shape, Build and Verify columns above a terminal and a detail panel](docs/screenshot.png)
 
 ```bash
 npm run dev          # electron-vite, hot reload
@@ -10,11 +12,25 @@ npm start            # build + launch
 npm run type-check   # vue-tsc over main, preload and renderer
 ```
 
+## The board
+
+Three columns — Shape, Build, Verify — and every session sits in one of them.
+Clicking a card opens that session in the terminal below; dragging it to another
+column pins its stage, and dragging it to the rail on the right closes it.
+
+Below the board is one terminal, and to its right a panel for whatever is
+selected: state and age, its Jira ticket, its pull requests, the model it is on
+and how much of the context window it has eaten.
+
+Rolly keeps at most six sessions awake at once. Opening a seventh puts the
+stalest one to sleep — never one that is mid-turn — and the card stays on the
+board, because a sleeping session is still work you have not finished.
+
 ## How it reads sessions
 
 Claude Code appends a JSONL transcript per session under
 `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl`. Those lines already carry
-`cwd`, `gitBranch`, `customTitle` and timestamps, so the rail needs no
+`cwd`, `gitBranch`, `customTitle` and timestamps, so the board needs no
 instrumentation — `SessionWatcher` tails the tree and folds each line into a
 record.
 
@@ -33,10 +49,10 @@ seen a session in — and spawns `claude` in an app-owned pty
   from the first frame instead of waiting for Claude to generate `ai-title`.
 - **The session id is chosen up front** and passed as `--session-id`, so the pty
   and the transcript the watcher later finds are the same session. No heuristic
-  correlation between what rolly spawned and what shows up in the rail.
+  correlation between what rolly spawned and what shows up on the board.
 - **The environment is sanitized.** A rolly launched from inside a Claude Code
   session inherits `CLAUDE_CODE_CHILD_SESSION`, which silently disables
-  transcript saving in every child — the rail would go blind for exactly the
+  transcript saving in every child — the board would go blind for exactly the
   sessions it started. `pty/env.ts` strips it.
 - **The pty runs under a login shell**, because a GUI-launched Electron has a
   PATH without `claude` in it.
@@ -98,7 +114,7 @@ Context fullness is `input + cache_read + cache_creation` for the latest turn.
 Transcripts don't record the window size — and the model id carries no `[1m]`
 marker — so the limit is **inferred from the session's own peak**: the smallest
 tier (200k, 1M) the peak fits inside. A session that has been past 200k is
-provably on the larger window. The rail shows a chip only once a session passes
+provably on the larger window. The panel shows a chip only once a session passes
 70%, amber to 90% and red beyond.
 
 ## Status
@@ -124,7 +140,7 @@ Hook truth only outranks the transcript **while it is newer than it**, so a
 restart with an empty map falls back to inference by itself, and so does a
 session that was running before the hooks were installed.
 
-Enabling it is a copy-paste: the rail footer opens a dialog with the config.
+Enabling it is a copy-paste: the board footer opens a dialog with the config.
 Writing it into `~/.claude/settings.json` from rolly was built and dropped —
 the auto-mode classifier blocks code that rewrites Claude Code's own settings,
 which is a fair call.
@@ -138,15 +154,15 @@ alternative, at a subprocess per event.
 
 ## The lifecycle axis
 
-The rail groups by **Shape / Build / Verify** — figuring it out, in flight, has
-a PR open — derived from transcript shape alone (`sessions/stage.ts`). It is a
-heuristic and a wrong call is correctable: picking a stage by hand pins it, and
-the header says `auto` until you do.
+The columns are **Shape / Build / Verify** — figuring it out, in flight, has a
+PR open — derived from transcript shape alone (`sessions/stage.ts`). It is a
+heuristic and a wrong call is correctable: dragging a card to another column
+pins it there.
 
 Needs-you is *not* a fourth group. Urgency cuts across the axis, so it shows as
-an accent down the row and sorts to the top of its own stage, with finished work
-sinking to the bottom. A stage header carries a `n needs you` badge when
-collapsed — otherwise folding a stage would hide the one session waiting on you.
+an amber card and sorts to the top of its own column, with finished work sinking to
+the bottom. The column header carries a `n needs you` badge, so a session
+waiting on you is visible without reading every card.
 
 ## Rolly's own folder
 
