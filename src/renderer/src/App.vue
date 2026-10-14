@@ -454,10 +454,10 @@ onUnmounted(() => {
 
 /** Splits the board from the terminal below it. */
 .tie {
-  height: 3px;
+  height: 2px;
   flex: 0 0 auto;
-  background: rgb(163 113 247);
-  box-shadow: 0 0 14px 1px rgb(163 113 247);
+  background: rgb(22 59 68);
+  box-shadow: 0 0 14px 1px rgb(22 59 68);
 }
 
 .status {

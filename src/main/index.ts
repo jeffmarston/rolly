@@ -5,6 +5,7 @@ import { SessionWatcher } from './sessions/watcher'
 import { PtyManager } from './pty/manager'
 import { PullRequestPoller } from './prs'
 import { HookServer } from './hooks/server'
+import { draftWithAI } from './draft'
 import { installMenu } from './menu'
 import { flushState, patchState, readState } from './state'
 import { ensureWorkspace, workspaceDir } from './workspace'
@@ -117,6 +118,11 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('jira:clearCredentials', () => clearCredentials())
   ipcMain.handle('jira:projects', () => projects())
+  ipcMain.handle(
+    'jira:draft',
+    (_event, sessionId: string, cwd: string, types: string[]) =>
+      draftWithAI(sessionId, cwd, types)
+  )
   ipcMain.handle('jira:create', async (_event, sessionId: string, draft: JiraDraft) => {
     const issue = await createIssue(draft)
     patchState({ jiraKeys: { ...readState().jiraKeys, [sessionId]: issue } })

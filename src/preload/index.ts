@@ -43,6 +43,12 @@ const api = {
     clearCredentials: (): Promise<void> => ipcRenderer.invoke('jira:clearCredentials'),
     projects: (): Promise<{ key: string; name: string; issueTypes: string[] }[]> =>
       ipcRenderer.invoke('jira:projects'),
+    draft: (
+      sessionId: string,
+      cwd: string,
+      types: string[]
+    ): Promise<{ summary: string; issueType: string; description: string }> =>
+      ipcRenderer.invoke('jira:draft', sessionId, cwd, types),
     create: (
       sessionId: string,
       draft: { project: string; issueType: string; summary: string; description: string }
