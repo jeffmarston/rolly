@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { spawn, type IPty } from 'node-pty'
+import { launch, isWindows } from '../platform'
 import { sanitizedEnv } from './env'
 
 /** Enough scrollback to restore a pane after a window reload, without unbounded growth. */
@@ -34,10 +35,10 @@ export class PtyManager extends EventEmitter {
     const args = resumeId ? ['--resume', resumeId] : ['--session-id', id]
     if (name) args.push('--name', name)
 
-    // Through a login shell, or a GUI-launched Electron hands the child a PATH without claude.
-    const shell = process.env.SHELL || '/bin/zsh'
-    const command = ['claude', ...args].map(quote).join(' ')
-    const term = spawn(shell, ['-l', '-c', `exec ${command}`], {
+    // `launch` is what makes claude findable on each platform; see platform.ts.
+    // node-pty takes a string as the command line verbatim and escapes an array.
+    const { file, args: argv, verbatim } = launch(['claude', ...args])
+    const term = spawn(file, verbatim ? argv.join(' ') : argv, {
       name: 'xterm-256color',
       cwd,
       cols,
@@ -84,18 +85,34 @@ export class PtyManager extends EventEmitter {
     }
   }
 
+  /**
+   * node-pty *throws* on Windows if handed a signal at all — and throws it from a
+   * deferred callback, so it escapes any try/catch here and the process survives.
+   * Dropping the signal there is what makes closing and quitting work at all.
+   */
   kill(id: string, signal?: string): void {
-    this.live.get(id)?.term.kill(signal)
+    try {
+      this.live.get(id)?.term.kill(isWindows ? undefined : signal)
+    } catch {
+      // The pty can exit between the caller deciding and this call landing.
+    }
   }
 
-  /** SIGTERM so claude can flush, then SIGKILL: closing has to work even when it is wedged. */
+  /**
+   * SIGTERM so claude can flush, then SIGKILL: closing has to work even when it
+   * is wedged. Windows has no signals — ConPTY kills the whole console process
+   * list outright — so the one kill is already the hard one and there is nothing
+   * to escalate to. Nothing is lost either way: the transcript is written as the
+   * session goes, not at exit.
+   */
   close(id: string): void {
     const entry = this.live.get(id)
     if (!entry) return
-    entry.term.kill('SIGTERM')
+    this.kill(id, 'SIGTERM')
+    if (isWindows) return
     setTimeout(() => {
       // Identity, not presence: a resume may have taken this id in the meantime.
-      if (this.live.get(id) === entry) entry.term.kill('SIGKILL')
+      if (this.live.get(id) === entry) this.kill(id, 'SIGKILL')
     }, CLOSE_GRACE_MS)
   }
 
@@ -106,8 +123,4 @@ export class PtyManager extends EventEmitter {
   killAll(signal?: string): void {
     for (const id of this.ids()) this.kill(id, signal)
   }
-}
-
-function quote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
 }

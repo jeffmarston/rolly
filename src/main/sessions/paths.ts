@@ -10,7 +10,23 @@ export function projectsRoot(): string {
   return join(claudeHome(), 'projects')
 }
 
-/** Claude slugs the cwd into the directory name; only a fallback once a record has a real cwd. */
+/**
+ * How Claude Code names the directory it keeps a cwd's transcripts in: every
+ * separator, drive colon and space becomes a dash. `C:\Repo\rolly` is stored as
+ * `C--Repo-rolly`, `/Users/jeff/repo` as `-Users-jeff-repo`.
+ */
+export function projectSlug(cwd: string): string {
+  return cwd.replace(/[\\/:\s]/g, '-')
+}
+
+/**
+ * The inverse, used only until a record carries a real `cwd` of its own. A
+ * leading drive letter is what tells the two shapes apart: `C--Repo-rolly` can
+ * only have come from a Windows path, `-Users-jeff-repo` only from a POSIX one.
+ */
 export function cwdFromProjectDir(dir: string): string {
-  return basename(dir).replace(/^-/, '/').replace(/-/g, '/')
+  const slug = basename(dir)
+  const drive = slug.match(/^([A-Za-z])--(.*)$/)
+  if (drive) return `${drive[1]}:\\${drive[2].replace(/-/g, '\\')}`
+  return slug.replace(/^-/, '/').replace(/-/g, '/')
 }

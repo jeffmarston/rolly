@@ -32,6 +32,41 @@
   box-sizing: border-box;
 }
 
+/**
+ * macOS hides a scrollbar until it is used, so nothing here was ever visible.
+ * Windows and Linux draw an always-on native one: wide, light, and it takes its
+ * width out of the layout. This makes it thin and dark on every platform.
+ */
+* {
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background: var(--border);
+  background-clip: content-box;
+
+  &:hover {
+    background: var(--text-faint);
+    background-clip: content-box;
+  }
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #app {

@@ -1,11 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { app } from 'electron'
 import { PtyManager } from '../src/main/pty/manager'
+import { projectSlug, projectsRoot } from '../src/main/sessions/paths'
 
 const cwd = process.argv[2]
-const slug = cwd.replace(/\//g, '-')
 const ptys = new PtyManager()
 
 const id = ptys.start({ cwd, name: 'rolly-smoke' })
@@ -18,7 +17,7 @@ ptys.attach(id)
 
 setTimeout(() => ptys.write(id, 'Reply with exactly: PTY-OK\r'), 6000)
 
-const file = join(homedir(), '.claude', 'projects', slug, `${id}.jsonl`)
+const file = join(projectsRoot(), projectSlug(cwd), `${id}.jsonl`)
 
 /** The transcript only lands once the turn completes, so poll rather than guess a deadline. */
 const poll = setInterval(() => existsSync(file) && finish(), 2000)

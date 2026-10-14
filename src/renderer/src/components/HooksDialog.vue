@@ -24,6 +24,13 @@ const snippet = computed(() => {
   return JSON.stringify({ hooks }, null, 2)
 })
 
+/** Claude Code reads the same file on every platform; only its name differs. */
+const settingsPath = computed(() =>
+  window.rolly.platform === 'win32'
+    ? '%USERPROFILE%\\.claude\\settings.json'
+    : '~/.claude/settings.json'
+)
+
 async function copy(): Promise<void> {
   await navigator.clipboard.writeText(snippet.value)
   copied.value = true
@@ -48,7 +55,7 @@ async function copy(): Promise<void> {
       </dl>
 
       <p class="lede">
-        Merge this into <code>~/.claude/settings.json</code>. It is safe to leave in place: when
+        Merge this into <code>{{ settingsPath }}</code>. It is safe to leave in place: when
         rolly is closed the connection is refused, which Claude Code treats as non-blocking and
         ignores.
       </p>

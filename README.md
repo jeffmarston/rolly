@@ -54,8 +54,13 @@ seen a session in — and spawns `claude` in an app-owned pty
   session inherits `CLAUDE_CODE_CHILD_SESSION`, which silently disables
   transcript saving in every child — the board would go blind for exactly the
   sessions it started. `pty/env.ts` strips it.
-- **The pty runs under a login shell**, because a GUI-launched Electron has a
-  PATH without `claude` in it.
+- **`claude` is found differently on each platform** (`platform.ts`). A
+  GUI-launched Electron on macOS has a PATH without `claude` in it, so the pty
+  runs under a **login shell**. Windows has no such gap — a process started from
+  Explorer inherits the user's environment — so the executable is resolved on
+  PATH and spawned directly, which keeps the exit code, the window size and the
+  kill attached to claude instead of to a shell wrapping it. Only a `.cmd` shim,
+  which is how an npm-installed claude arrives, needs `cmd.exe` behind it.
 
 Terminals are cached per session in the renderer, so switching rows keeps
 scrollback; main keeps a capped buffer so a window reload can restore a pane.
@@ -91,6 +96,13 @@ or sitting on a permission prompt — which is most of the times you want out.
 three seconds later if it is wedged. The timer compares pty *identity*, not the
 id, so a resume that claimed the same id in between can't be killed by a stale
 timer.
+
+Windows has no signals, and node-pty **throws** if handed one — from a deferred
+callback, so the throw escapes any `try`/`catch` around the call and the process
+simply survives. Rolly drops the signal there; the one kill takes the whole
+console process list, so there is nothing to escalate to and the grace timer is
+skipped. Nothing is lost by the hard kill: the transcript is written as the
+session goes, not at exit.
 
 Close also clears the row, because "close this session" means get it off the
 list. Nothing is destroyed: closed rows collect in a **Closed** group and
@@ -150,7 +162,12 @@ observed firing. And with rolly closed, Claude prints one warning per session
 (`connect ECONNREFUSED`) — harmless, since a connection failure is a
 non-blocking error and the run completes normally, but visible. A `command`
 hook with `async: true` and `curl … 2>/dev/null || true` is the silent
-alternative, at a subprocess per event.
+alternative, at a subprocess per event (`2>NUL` on Windows).
+
+The `http` hook type itself is platform-neutral, and so is the listener. Only
+the file the snippet goes into is named differently, so the dialog says
+`~/.claude/settings.json` or `%USERPROFILE%\.claude\settings.json` to match the
+host.
 
 ## The lifecycle axis
 
@@ -174,8 +191,12 @@ Sessions started from rolly run in `userData/workspace`, **not** a repository,
 so work spanning several repos has a neutral home and rolly never edits a repo
 by accident. On first run that folder is seeded with a `CLAUDE.md` and a memory
 dir, so sessions rolly creates share one memory instead of a per-repo one. The
-memory path has to be derived the way Claude Code slugs a cwd: every separator
-**and space** becomes a dash.
+memory path has to be derived the way Claude Code slugs a cwd: every separator,
+drive colon **and space** becomes a dash, so `C:\Repo\rolly` is stored as
+`C--Repo-rolly` and `/Users/jeff/repo` as `-Users-jeff-repo`. Both directions
+live in `sessions/paths.ts`; the reverse is a fallback only, used until a record
+carries a real `cwd`, and a leading drive letter is what tells the two shapes
+apart.
 
 Note for anything writing state from the renderer: a Vue reactive proxy is not
 structured-cloneable, so `ipcRenderer.invoke` rejects on one — silently, if the
@@ -216,6 +237,33 @@ struck through. It is never persisted — a restart re-polls rather than showing
 yesterday's answer — and `gh` runs under a login shell for the same PATH reason
 the pty does.
 
+## Windows
+
+The plan said `sessions/paths.ts` would be the only file that had to care. It
+wasn't close. Reading sessions did port almost for free — chokidar, the
+tail-forever indexer, the reducer, the hook listener and the whole renderer are
+already platform-neutral — but everything that *runs* something or *names* a
+path needed work:
+
+- **Launching.** The login-shell trick solves a macOS-only problem and has no
+  Windows equivalent, so `platform.ts` now owns "how do I run `claude`/`gh`
+  here" for both, and the POSIX quoting moved there with it.
+- **Killing.** Passing a signal to node-pty on Windows throws rather than kills,
+  which left **Close** and quit silently doing nothing.
+- **Slugs.** `C:\Repo\rolly` becomes `C--Repo-rolly`: the drive colon and the
+  backslash both had to join the dash rule, in both directions.
+- **Native code and packaging.** Prebuilds instead of a source rebuild, and an
+  NSIS target.
+- **Paths on screen.** `~` substitution, and the footer and hooks dialog no
+  longer hardcode a POSIX path they were only ever right about on macOS.
+- **The scrollbar.** macOS hides one until it is used, so the rail had never
+  been styled for a platform that draws an always-on native one.
+
+What stayed put: one `claude` process per session, the transcript as the durable
+thing, hook truth outranking inference, and the id chosen up front — the
+transcript lands at exactly that id under Windows too, which is what makes the
+rail correlate without heuristics.
+
 ## Icon and packaging
 
 The mark is generated, not hand-drawn: `scripts/icon-svg.mjs` draws four
@@ -227,16 +275,40 @@ downscales with `nativeImage.resize` — a window per size races on `loadURL` an
 fails after the first capture. It also has to be bundled to CJS first, because
 Electron won't take a bare `.mjs` as its entry point.
 
+The render also has to set the window size **after** construction. The
+constructor clamps to the display's work area, so on a 1280x800 screen a 1024px
+request quietly came back 1024x752 and every icon was cropped; `setContentSize`
+is not clamped.
+
 ```bash
 npm run icon       # regenerate every icon asset
-npm run package    # unpacked Rolly.app into release/
-npm run dist       # a dmg
+npm run package    # unpacked app into release/
+npm run dist       # a dmg on macOS, an NSIS installer on Windows
 ```
+
+`icon.icns` is only read when packaging for macOS and `iconutil` only exists
+there, so that step skips itself elsewhere; Windows and Linux take `icon.png`
+and electron-builder derives the `.ico` from it.
 
 **The app is only called "Rolly" when packaged.** macOS reads the menu-bar name
 from the bundle's `CFBundleName`, so an `electron .` dev run says "Electron" no
 matter what `app.setName` does. Everything that *can* be set at runtime — about
 panel, dock icon, window title, userData path — is.
+
+### Native code
+
+node-pty is the one native dependency, and it ships **N-API prebuilds**, which
+are ABI-stable across Node and Electron. Windows loads `prebuilds/win32-<arch>`
+as-is and must: building it from source wants a Visual Studio install that
+nothing else here needs, and both `npm install` and `electron-builder` otherwise
+stop at `Could not find any Visual Studio installation to use`.
+
+So `postinstall` branches — macOS and Linux rebuild against the installed
+Electron and then restore the executable bit on `spawn-helper`, Windows checks
+the prebuild is there and says which one it will use — and `npmRebuild` is off,
+because by packaging time the right binary is already in place on every
+platform. electron-builder unpacks node-pty, ConPTY and `winpty-agent.exe` out
+of the asar on its own.
 
 ## Testing
 
@@ -256,25 +328,33 @@ instead of opening a native dialog, which is what lets the UI be driven from a
 harness. Other probes follow the same bundle-then-run shape:
 `stage-probe` and `summary-probe` replay the classifier over real transcripts,
 `pr-probe` runs the PR poller headlessly, `two-writers` is the experiment behind
-the unconditional **Open here**.
+the unconditional **Open here**, and `platform-probe` prints what `launch()`
+resolves `claude` and `gh` to here plus how each cwd shape slugs and comes back.
 
 ### Driving the UI
 
 There is no way to tell whether a desktop UI actually renders without looking at
 it, and `screencapture` is black without screen-recording permission. Launch
-with a debugging port and go through the Chrome DevTools Protocol:
+with a debugging port and go through the Chrome DevTools Protocol —
+`scripts/cdp.mjs` is that, wrapped:
 
 ```bash
-open release/mac-arm64/Rolly.app --args --remote-debugging-port=9444
-curl -s http://localhost:9444/json          # find the page target
+npm run build && ./node_modules/.bin/electron . --remote-debugging-port=9444
+node scripts/cdp.mjs shot.png "window.rolly.list().then(s => s.length)"
 ```
 
-Connect to `webSocketDebuggerUrl` with Node's built-in `WebSocket` — no `ws`
-dependency — and use `Page.captureScreenshot`, `Runtime.evaluate` to query and
-click, `Input.insertText` to type into a pane for real. Setting a Vue `v-model`
-input needs the native setter plus a dispatched `input` event. This caught a
-mangled file path and a wrapping metadata row that type-check and build both
-passed.
+It takes a screenshot path (`-` for none) and any number of expressions to
+evaluate. Under the hood it connects to `webSocketDebuggerUrl` with Node's
+built-in `WebSocket` — no `ws` dependency — and uses `Page.captureScreenshot`
+plus `Runtime.evaluate`; `Input.insertText` types into a pane for real. Setting
+a Vue `v-model` input needs the native setter plus a dispatched `input` event.
+This caught a mangled file path and a wrapping metadata row that type-check and
+build both passed, and on Windows it caught **Close** doing nothing at all.
+
+On Windows a packaged build is launched with PowerShell's `Start-Process`, since
+backgrounding it from a shell lets it die with the shell; `Get-Process Rolly`
+is how you check it is still up, and it keeps a lock on `ffmpeg.dll` that fails
+the next `npm run dist` until the process is stopped.
 
 **Don't repackage or quit while a session is live** — quitting SIGTERMs rolly's
 children and kills work mid-turn. Check for `claude` under the app's pid first.
@@ -288,8 +368,9 @@ Delete any test transcripts afterwards; they show up as rows like anything else.
   something else has it open.
 - **M4 — hooks.** ✅ localhost endpoint; exact status, including the states no
   transcript records.
-- **M5 — Windows.** Packaging, and `sessions/paths.ts` is the only file that
-  should need to care.
+- **M5 — Windows.** ✅ runs, spawns ptys and packages to an NSIS installer.
+  `sessions/paths.ts` was *not* the only file that had to care — see **Windows**
+  above for what did.
 
 Shipped alongside: the Shape/Build/Verify axis, Jira ticket ownership, PR state
 polling, and closing that works.

@@ -8,6 +8,9 @@ function subscribe<T>(channel: string, handler: (payload: T) => void): () => voi
 }
 
 const api = {
+  /** The renderer only needs it to name paths the way the host OS does. */
+  platform: process.platform,
+
   list: (): Promise<SessionRecord[]> => ipcRenderer.invoke('sessions:list'),
   copyResume: (id: string): Promise<void> => ipcRenderer.invoke('sessions:copyResume', id),
   onUpdate: (handler: (sessions: SessionRecord[]) => void) =>
@@ -25,6 +28,7 @@ const api = {
 
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickFolder'),
   workspace: (): Promise<string> => ipcRenderer.invoke('workspace:path'),
+  projectsRoot: (): Promise<string> => ipcRenderer.invoke('paths:projects'),
 
   state: {
     get: (): Promise<RollyState> => ipcRenderer.invoke('state:get'),
