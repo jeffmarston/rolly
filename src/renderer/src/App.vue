@@ -189,10 +189,6 @@ const lifecycle = computed(() => {
 
 const closed = computed(() => visible.value.filter(isDismissed).sort(byUrgency))
 
-/** Drawn at the top of the pane, under whichever column owns the focused session. */
-const activeStage = computed(() =>
-  selected.value && !isDismissed(selected.value) ? stageOf(selected.value) : undefined
-)
 
 /** Urgency cuts across the lifecycle axis, so it sorts within a stage rather than above it. */
 function byUrgency(a: SessionRecord, b: SessionRecord): number {
@@ -305,19 +301,7 @@ onUnmounted(() => {
       />
     </div>
 
-    <div class="tie">
-      <span
-        v-for="column in lifecycle"
-        :key="column.stage"
-        :style="
-          activeStage === column.stage
-            ? { background: column.accent, boxShadow: `0 0 14px 1px ${column.accent}` }
-            : { background: 'transparent' }
-        "
-      />
-      <i v-if="showClosed" class="shelf-gap" />
-      <i class="rail-gap" />
-    </div>
+    <div class="tie" />
 
     <DetailPane
       compact
@@ -468,31 +452,12 @@ onUnmounted(() => {
   }
 }
 
-/** Sits on the pane, not the board: it marks which column the terminal below belongs to. */
+/** Splits the board from the terminal below it. */
 .tie {
-  display: flex;
+  height: 3px;
   flex: 0 0 auto;
-  padding: 0 18px;
-  gap: 12px;
-
-  span {
-    height: 3px;
-    flex: 1;
-    border-radius: 2px;
-    transition:
-      background 160ms ease,
-      box-shadow 160ms ease;
-  }
-
-  .rail-gap {
-    width: 46px;
-    flex: 0 0 46px;
-  }
-
-  .shelf-gap {
-    width: 260px;
-    flex: 0 0 260px;
-  }
+  background: rgb(163 113 247);
+  box-shadow: 0 0 14px 1px rgb(163 113 247);
 }
 
 .status {

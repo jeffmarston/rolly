@@ -29,18 +29,23 @@ function start(event: DragEvent): void {
     @click="emit('pick')"
   >
     <StatusDot :status="session.status" />
-    <span class="title">{{ session.title }}</span>
-    <span v-if="live" class="live" title="Terminal attached">live</span>
-    <span v-if="(contextShare(session) ?? 0) >= 0.9" class="full">full</span>
-    <span class="age">{{ relativeTime(session.lastActivity, now) }}</span>
+    <div class="body">
+      <div class="line">
+        <span class="title">{{ session.title }}</span>
+        <span v-if="live" class="live" title="Terminal attached">live</span>
+        <span v-if="(contextShare(session) ?? 0) >= 0.9" class="full">full</span>
+        <span class="age">{{ relativeTime(session.lastActivity, now) }}</span>
+      </div>
+      <p v-if="session.summary" class="ask" :title="session.summary">{{ session.summary }}</p>
+    </div>
   </article>
 </template>
 
 <style lang="scss" scoped>
 .card {
   display: flex;
-  align-items: center;
-  padding: 11px 13px;
+  align-items: flex-start;
+  padding: 10px 13px 11px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background:
@@ -48,7 +53,7 @@ function start(event: DragEvent): void {
     linear-gradient(180deg, #232327 0%, #1b1b1e 100%);
   box-shadow: var(--edge), var(--lift-1);
   cursor: grab;
-  gap: 9px;
+  gap: 10px;
   transition:
     transform 110ms ease,
     box-shadow 110ms ease,
@@ -88,9 +93,34 @@ function start(event: DragEvent): void {
   }
 }
 
+:deep(.dot) {
+  margin-top: 6px;
+}
+
+.body {
+  min-width: 0;
+  flex: 1;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
 .title {
   overflow: hidden;
   flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/** The last thing he asked for — what the session is actually about. */
+.ask {
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
