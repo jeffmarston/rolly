@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { promisify } from 'node:util'
 import type { PrState } from '@shared/types'
+import { launch } from './platform'
 
 const run = promisify(execFile)
 
@@ -103,10 +104,13 @@ async function query(targets: Target[]): Promise<Record<string, Node | null>> {
     )
     .join(' ')
 
-  // Through a login shell, or a GUI-launched Electron hands gh a PATH without it.
-  const shell = process.env.SHELL || '/bin/zsh'
-  const command = `gh api graphql -f ${quote(`query={ ${fields} }`)}`
-  const { stdout } = await run(shell, ['-l', '-c', command], { maxBuffer: 4 * 1024 * 1024 })
+  // `launch` is what makes gh findable on each platform; see platform.ts.
+  // windowsVerbatimArguments joins the parts as written instead of re-escaping.
+  const { file, args, verbatim } = launch(['gh', 'api', 'graphql', '-f', `query={ ${fields} }`])
+  const { stdout } = await run(file, args, {
+    maxBuffer: 4 * 1024 * 1024,
+    windowsVerbatimArguments: verbatim
+  })
 
   // A missing repo nulls its alias and reports an error, while the rest still resolve.
   return (JSON.parse(stdout) as { data?: Record<string, Node | null> }).data ?? {}
@@ -118,8 +122,4 @@ function stateOf(node: Node | null | undefined): PrState | undefined {
   if (pr.state === 'MERGED') return 'merged'
   if (pr.state === 'CLOSED') return 'closed'
   return pr.isDraft ? 'draft' : 'open'
-}
-
-function quote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
 }

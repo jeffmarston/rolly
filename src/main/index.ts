@@ -9,6 +9,7 @@ import { draftWithAI } from './draft'
 import { installMenu } from './menu'
 import { flushState, patchState, readState } from './state'
 import { ensureWorkspace, workspaceDir } from './workspace'
+import { projectsRoot } from './sessions/paths'
 import {
   clearCredentials,
   createIssue,
@@ -106,6 +107,7 @@ app.whenReady().then(() => {
   ipcMain.handle('state:get', () => readState())
   ipcMain.handle('state:patch', (_event, patch: Partial<RollyState>) => patchState(patch))
   ipcMain.handle('workspace:path', () => workspaceDir())
+  ipcMain.handle('paths:projects', () => projectsRoot())
 
   ipcMain.handle('sessions:list', () => reported(watcher.snapshot()))
   ipcMain.handle('hooks:info', () => ({ url: hooks.url, listening: hooks.listening }))

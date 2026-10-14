@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import type { SessionRecord, Stage } from '@shared/types'
 import { STAGE_HINT, STAGE_LABEL, STAGE_ORDER } from '@shared/types'
 import { release } from './terminals'
+import { homeRelative } from './time'
 import { hydratePrs } from './prs'
 import {
   dismiss,
@@ -61,6 +62,7 @@ async function closeById(id: string): Promise<void> {
   dismiss(id)
   if (selectedId.value === id) selectedId.value = lifecycle.value[0]?.rows[0]?.id ?? null
 }
+const projectsRoot = ref('')
 
 function ticketCreated(issue: { key: string; url: string }): void {
   if (selectedId.value) setJira(selectedId.value, issue)
@@ -217,6 +219,7 @@ onMounted(async () => {
   await hydrateState()
   stopPrs = await hydratePrs()
   workspace.value = await window.rolly.workspace()
+  projectsRoot.value = await window.rolly.projectsRoot()
   hookInfo.value = await window.rolly.hooks.info()
   stopUpdates = window.rolly.onUpdate(applySessions)
   stopExits = window.rolly.pty.onExit(({ id }) => {
@@ -322,7 +325,7 @@ onUnmounted(() => {
     <footer class="status">
       <span>
         {{ visible.length }} of {{ rows.length }} sessions · {{ liveIds.length }}/{{ MAX_LIVE }}
-        awake · watching ~/.claude/projects
+        awake · watching {{ homeRelative(projectsRoot) }}
       </span>
       <button type="button" class="hooks" @click="showHooks = true">
         {{ hookInfo?.listening ? 'Exact status' : 'Status inferred' }}

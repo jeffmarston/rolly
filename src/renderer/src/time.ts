@@ -12,7 +12,17 @@ export function relativeTime(iso: string | undefined, now = Date.now()): string 
   return `${Math.floor(age / DAY)}d`
 }
 
+/** Any platform's home directory, since a rail can show rows from a shared drive. */
+const HOME = [
+  /^\/Users\/[^/]+/, // macOS
+  /^\/home\/[^/]+/, // Linux
+  /^[A-Za-z]:\\Users\\[^\\]+/ // Windows
+]
+
 export function homeRelative(path: string | undefined): string {
   if (!path) return '—'
-  return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
+  for (const home of HOME) {
+    if (home.test(path)) return path.replace(home, '~')
+  }
+  return path
 }
