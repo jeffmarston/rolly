@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { PrState, RollyState, SessionRecord } from '@shared/types'
+import type { ChangedFile, PrState, RollyState, SessionRecord } from '@shared/types'
 
 function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
   const listener = (_event: unknown, payload: T): void => handler(payload)
@@ -43,17 +43,18 @@ const api = {
     clearCredentials: (): Promise<void> => ipcRenderer.invoke('jira:clearCredentials'),
     projects: (): Promise<{ key: string; name: string; issueTypes: string[] }[]> =>
       ipcRenderer.invoke('jira:projects'),
-    draft: (
-      sessionId: string,
-      cwd: string,
-      types: string[]
-    ): Promise<{ summary: string; issueType: string; description: string }> =>
-      ipcRenderer.invoke('jira:draft', sessionId, cwd, types),
     create: (
       sessionId: string,
       draft: { project: string; issueType: string; summary: string; description: string }
     ): Promise<{ key: string; url: string }> =>
       ipcRenderer.invoke('jira:create', sessionId, draft)
+  },
+
+  diff: {
+    open: (cwd: string): Promise<void> => ipcRenderer.invoke('diff:open', cwd),
+    files: (cwd: string): Promise<ChangedFile[]> => ipcRenderer.invoke('diff:files', cwd),
+    file: (cwd: string, file: ChangedFile): Promise<{ before: string; after: string }> =>
+      ipcRenderer.invoke('diff:file', cwd, file)
   },
 
   pty: {

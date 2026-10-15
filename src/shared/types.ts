@@ -20,6 +20,8 @@ export interface SessionRecord {
   /** Signals the stage was derived from, so the UI can explain itself. */
   edits: number
   pullRequestUrls: string[]
+  /** Tickets filed from inside the session, newest last. */
+  jiraIssueUrls: string[]
   model?: string
   effort?: string
   permissionMode?: string
@@ -31,6 +33,14 @@ export interface SessionRecord {
   statusReason?: string
   /** null until M4 wires `gh`; the rail renders it as unknown. */
   pullRequests: number | null
+}
+
+export interface ChangedFile {
+  /** A single git status letter: M, A, D, R… */
+  status: string
+  path: string
+  /** The path HEAD knows it by — differs from `path` only for a rename. */
+  from: string
 }
 
 export type PrState = 'open' | 'draft' | 'merged' | 'closed'

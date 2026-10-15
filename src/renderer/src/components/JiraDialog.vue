@@ -10,7 +10,6 @@ type Project = { key: string; name: string; issueTypes: string[] }
 
 const needsCredentials = ref(false)
 const busy = ref(false)
-const drafting = ref(false)
 const error = ref('')
 
 const site = ref('spn.atlassian.net')
@@ -53,26 +52,6 @@ async function loadProjects(): Promise<void> {
     if (!types.value.includes(issueType.value)) issueType.value = types.value[0] ?? ''
   } catch (cause) {
     error.value = String(cause)
-  }
-}
-
-/** Forks the session so the model reads the whole thing; the fork is thrown away after. */
-async function draft(): Promise<void> {
-  if (!props.session?.cwd) return
-  drafting.value = true
-  error.value = ''
-  try {
-    // A reactive array can't be structured-cloned, so invoke rejects on one.
-    const written = await window.rolly.jira.draft(props.session.id, props.session.cwd, [
-      ...types.value
-    ])
-    summary.value = written.summary
-    issueType.value = written.issueType
-    description.value = written.description
-  } catch (cause) {
-    error.value = String(cause)
-  } finally {
-    drafting.value = false
   }
 }
 
@@ -170,12 +149,7 @@ async function create(): Promise<void> {
           </div>
         </div>
 
-        <div class="field-head">
-          <label for="jira-summary">Summary</label>
-          <button class="ai" type="button" :disabled="drafting" @click="draft">
-            {{ drafting ? 'Reading the session…' : 'Draft with AI' }}
-          </button>
-        </div>
+        <label for="jira-summary">Summary</label>
         <input id="jira-summary" ref="firstField" v-model="summary" />
 
         <label for="jira-description">Description</label>
@@ -239,24 +213,6 @@ async function create(): Promise<void> {
     text-transform: uppercase;
   }
 
-  .field-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    label {
-      margin-bottom: 0;
-    }
-  }
-
-  .ai {
-    padding: 3px 9px;
-    border-radius: 6px;
-    color: var(--merged);
-    font-size: 11px;
-    letter-spacing: 0;
-    text-transform: none;
-  }
 
   input,
   select,

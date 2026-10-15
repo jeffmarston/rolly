@@ -1,14 +1,14 @@
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { app, shell, dialog, BrowserWindow, ipcMain, clipboard, nativeImage } from 'electron'
-import type { RollyState, SessionRecord } from '@shared/types'
+import type { ChangedFile, RollyState, SessionRecord } from '@shared/types'
 import { SessionWatcher } from './sessions/watcher'
 import { PtyManager } from './pty/manager'
 import { PullRequestPoller } from './prs'
 import { HookServer } from './hooks/server'
-import { draftWithAI } from './draft'
 import { installMenu } from './menu'
 import { flushState, patchState, readState } from './state'
 import { ensureWorkspace, workspaceDir } from './workspace'
+import { changedFiles, fileVersions } from './diff'
 import {
   clearCredentials,
   createIssue,
@@ -81,6 +81,23 @@ function createWindow(): void {
   }
 }
 
+function openDiffWindow(cwd: string): void {
+  const diff = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    backgroundColor: '#121212',
+    title: `Diff — ${basename(cwd)}`,
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+  })
+
+  const hash = `diff:${encodeURIComponent(cwd)}`
+  if (process.env.ELECTRON_RENDERER_URL) {
+    diff.loadURL(`${process.env.ELECTRON_RENDERER_URL}#${hash}`)
+  } else {
+    diff.loadFile(join(__dirname, '../renderer/index.html'), { hash })
+  }
+}
+
 function reported(sessions: SessionRecord[]): SessionRecord[] {
   return sessions.map((session) => hooks.apply(session))
 }
@@ -108,6 +125,10 @@ app.whenReady().then(() => {
   ipcMain.handle('workspace:path', () => workspaceDir())
 
   ipcMain.handle('sessions:list', () => reported(watcher.snapshot()))
+
+  ipcMain.handle('diff:open', (_event, cwd: string) => openDiffWindow(cwd))
+  ipcMain.handle('diff:files', (_event, cwd: string) => changedFiles(cwd))
+  ipcMain.handle('diff:file', (_event, cwd: string, file: ChangedFile) => fileVersions(cwd, file))
   ipcMain.handle('hooks:info', () => ({ url: hooks.url, listening: hooks.listening }))
   ipcMain.handle('prs:list', () => prs.snapshot())
   ipcMain.handle('jira:hasCredentials', () => hasCredentials())
@@ -118,11 +139,6 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('jira:clearCredentials', () => clearCredentials())
   ipcMain.handle('jira:projects', () => projects())
-  ipcMain.handle(
-    'jira:draft',
-    (_event, sessionId: string, cwd: string, types: string[]) =>
-      draftWithAI(sessionId, cwd, types)
-  )
   ipcMain.handle('jira:create', async (_event, sessionId: string, draft: JiraDraft) => {
     const issue = await createIssue(draft)
     patchState({ jiraKeys: { ...readState().jiraKeys, [sessionId]: issue } })

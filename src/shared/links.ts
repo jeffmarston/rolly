@@ -8,7 +8,17 @@ export interface Link {
   url: string
 }
 
-/** PRs only: a branch-derived Jira key named one ticket for every session sharing a tree. */
+const JIRA = /atlassian\.net\/browse\/([A-Z][A-Z0-9]+-\d+)/
+
+/** Filed tickets only: a branch-derived key named one ticket for every session sharing a tree. */
+export function jiraIssues(session: SessionRecord): { key: string; url: string }[] {
+  return session.jiraIssueUrls.flatMap((url) => {
+    const match = url.match(JIRA)
+    return match ? [{ key: match[1], url }] : []
+  })
+}
+
+/** PRs only — tickets have their own shape and their own place in the panel. */
 export function sessionLinks(session: SessionRecord): Link[] {
   const links: Link[] = []
 

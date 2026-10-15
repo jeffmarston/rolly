@@ -1,11 +1,20 @@
 import type { SessionRecord } from '@shared/types'
 import { contextTotal, inferContextLimit } from './context'
-import { countsAsEdit, deriveStage, opensPullRequest, pullRequestUrls } from './stage'
+import {
+  countsAsEdit,
+  deriveStage,
+  filesJiraIssue,
+  jiraIssueUrl,
+  opensPullRequest,
+  pullRequestUrls
+} from './stage'
 
 /** The wire record plus scratch fields the fold needs but the renderer never sees. */
 export interface SessionDraft extends SessionRecord {
   prCalls?: Set<string>
   prUrls?: Set<string>
+  jiraCalls?: Set<string>
+  jiraUrls?: Set<string>
   /** Kept apart from the summary: status inference reads Claude's words, the rail shows Jeff's. */
   lastReply?: string
   contextPeak?: number
@@ -61,6 +70,7 @@ export function emptyDraft(id: string, file: string, projectDir: string): Sessio
     stage: 'shape',
     edits: 0,
     pullRequestUrls: [],
+    jiraIssueUrls: [],
     status: 'idle',
     pullRequests: null
   }
@@ -123,7 +133,7 @@ export function applyLine(record: SessionDraft, line: string): void {
   }
 }
 
-/** Edits and PR links are what place a session on the lifecycle axis. */
+/** Edits and PR links place a session on the lifecycle axis; filed tickets just ride along. */
 function readStageSignals(record: SessionDraft, message: unknown): void {
   if (!message || typeof message !== 'object') return
   const content = (message as { content?: unknown }).content
@@ -145,14 +155,26 @@ function readStageSignals(record: SessionDraft, message: unknown): void {
         record.prCalls = record.prCalls ?? new Set()
         record.prCalls.add(id)
       }
+      if (id && filesJiraIssue(name)) {
+        record.jiraCalls = record.jiraCalls ?? new Set()
+        record.jiraCalls.add(id)
+      }
     }
 
+    if (type !== 'tool_result' || !tool_use_id) continue
+
+    const output = (block as { content?: unknown }).content
+    const text = typeof output === 'string' ? output : JSON.stringify(output)
+
     // Only the output of a `gh pr create` call counts — prose quoting a link does not.
-    if (type === 'tool_result' && tool_use_id && record.prCalls?.has(tool_use_id)) {
+    if (record.prCalls?.has(tool_use_id)) {
       record.prUrls = record.prUrls ?? new Set()
-      const output = (block as { content?: unknown }).content
-      const text = typeof output === 'string' ? output : JSON.stringify(output)
       for (const url of pullRequestUrls(text.replace(/\\n/g, '\n'))) record.prUrls.add(url)
+    }
+
+    if (record.jiraCalls?.has(tool_use_id)) {
+      const url = jiraIssueUrl(text)
+      if (url) (record.jiraUrls = record.jiraUrls ?? new Set()).add(url)
     }
   }
 }
@@ -174,6 +196,7 @@ export function finalize(record: SessionDraft): SessionDraft {
   // The rail reads better as "what was asked" than "where Claude got to".
   record.summary = record.lastPrompt
   record.pullRequestUrls = [...(record.prUrls ?? [])]
+  record.jiraIssueUrls = [...(record.jiraUrls ?? [])]
   record.stage = deriveStage(record.edits, record.pullRequestUrls.length)
   record.title =
     record.titleOverride ||

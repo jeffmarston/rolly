@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { SessionRecord } from '@shared/types'
 import { STATUS_LABEL, modelName } from '@shared/types'
-import { sessionLinks } from '@shared/links'
+import { jiraIssues, sessionLinks } from '@shared/links'
 import { PR_GLYPH, prStateOf } from '@/prs'
 import { relativeTime } from '@/time'
 import ContextMeter from './ContextMeter.vue'
@@ -18,8 +18,19 @@ const emit = defineEmits<{ adopt: []; close: []; restore: []; createJira: []; re
 
 const links = computed(() => sessionLinks(props.session))
 
+/** The ticket rolly opened, then any the session filed itself. */
+const tickets = computed(() => {
+  const filed = jiraIssues(props.session)
+  const opened = props.jira
+  return opened ? [opened, ...filed.filter((t) => t.key !== opened.key)] : filed
+})
+
 function open(url: string): void {
   void window.rolly.openExternal(url)
+}
+
+function openDiff(): void {
+  if (props.session.cwd) void window.rolly.diff.open(props.session.cwd)
 }
 </script>
 
@@ -33,10 +44,22 @@ function open(url: string): void {
 
     <section>
       <h2>Jira</h2>
-      <button v-if="jira" class="ticket" type="button" :title="jira.url" @click="open(jira.url)">
-        {{ jira.key }} ↗
+      <button
+        v-for="ticket in tickets"
+        :key="ticket.key"
+        class="ticket"
+        type="button"
+        :title="ticket.url"
+        @click="open(ticket.url)"
+      >
+        {{ ticket.key }} ↗
       </button>
-      <button v-else class="ticket create" type="button" @click="emit('createJira')">
+      <button
+        v-if="!tickets.length"
+        class="ticket create"
+        type="button"
+        @click="emit('createJira')"
+      >
         Create ticket
       </button>
     </section>
@@ -72,6 +95,7 @@ function open(url: string): void {
     </section>
 
     <footer>
+      <button v-if="session.cwd" type="button" @click="openDiff">Diff</button>
       <button type="button" @click="emit('resume')">Copy resume command</button>
       <button v-if="dismissed" type="button" @click="emit('restore')">Reopen</button>
       <button v-else type="button" class="danger" @click="emit('close')">Close session</button>

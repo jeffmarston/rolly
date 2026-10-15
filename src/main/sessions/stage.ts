@@ -34,3 +34,16 @@ export function opensPullRequest(name: unknown, command: unknown): boolean {
 export function pullRequestUrls(text: string): string[] {
   return [...text.matchAll(PR_URL)].map((match) => match[1])
 }
+
+/** A ticket this session filed. Browse links litter prose, so only a create call counts. */
+const JIRA_CREATE = /createJiraIssue$/
+const JIRA_URL = /https:\/\/[\w.-]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+/
+
+export function filesJiraIssue(name: unknown): boolean {
+  return typeof name === 'string' && JIRA_CREATE.test(name)
+}
+
+/** One call files one issue, and the payload also links its project and parent. */
+export function jiraIssueUrl(text: string): string | undefined {
+  return text.match(JIRA_URL)?.[0]
+}
