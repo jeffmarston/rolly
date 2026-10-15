@@ -18,7 +18,7 @@ const props = defineProps<{
   stageOverridden?: boolean
   jira?: { key: string; url: string }
   dismissed?: boolean
-  /** Board layout: the meta row folds into the header and the ask is dropped. */
+  /** Board layout: the meta row folds into the header and details move to the side panel. */
   compact?: boolean
 }>()
 const emit = defineEmits<{
@@ -144,27 +144,29 @@ async function copyResume(): Promise<void> {
       </button>
     </div>
 
-    <blockquote
-      v-if="session.summary && !compact"
-      class="ask"
-      :class="{ expanded }"
-      :title="expanded ? '' : 'Click to expand'"
-      @click="expanded = !expanded"
-    >
-      <span class="who">You</span>
-      <p>{{ session.summary }}</p>
-    </blockquote>
-
     <div class="work">
-      <TerminalView v-if="live" :key="session.id" :pty-id="session.id" />
+      <div class="stack">
+        <blockquote
+          v-if="session.summary"
+          class="ask"
+          :class="{ expanded }"
+          :title="expanded ? '' : 'Click to expand'"
+          @click="expanded = !expanded"
+        >
+          <span class="who">You</span>
+          <p>{{ session.summary }}</p>
+        </blockquote>
 
-      <div v-else class="placeholder">
-        <p>Rolly isn't driving this session.</p>
-        <p class="hint">
-          Opening it here resumes it in a terminal, replaying what came before. If it's also open
-          somewhere else, both stay usable — they share the one transcript.
-        </p>
-        <button type="button" class="primary" @click="emit('adopt')">Open here</button>
+        <TerminalView v-if="live" :key="session.id" :pty-id="session.id" />
+
+        <div v-else class="placeholder">
+          <p>Rolly isn't driving this session.</p>
+          <p class="hint">
+            Opening it here resumes it in a terminal, replaying what came before. If it's also open
+            somewhere else, both stay usable — they share the one transcript.
+          </p>
+          <button type="button" class="primary" @click="emit('adopt')">Open here</button>
+        </div>
       </div>
 
       <SessionInfo
@@ -292,6 +294,13 @@ h1 {
 .work > :first-child {
   min-width: 0;
   flex: 1;
+}
+
+/** The ask rides above the terminal, not above the info panel beside it. */
+.stack {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
 }
 
 .chips {

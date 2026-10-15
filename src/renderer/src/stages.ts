@@ -6,6 +6,8 @@ const overrides = ref<Record<string, Stage>>({})
 const collapsed = ref<Record<string, boolean>>({})
 const jira = ref<Record<string, { key: string; url: string }>>({})
 const dismissed = ref<Record<string, string>>({})
+/** Days of silence that count as abandoned. Three is a long weekend. */
+const sweepDays = ref(3)
 
 export async function hydrateState(): Promise<void> {
   const state = await window.rolly.state.get()
@@ -13,6 +15,14 @@ export async function hydrateState(): Promise<void> {
   collapsed.value = state.collapsedGroups ?? {}
   jira.value = state.jiraKeys ?? {}
   dismissed.value = state.dismissed ?? {}
+  sweepDays.value = state.sweepDays ?? sweepDays.value
+}
+
+export { sweepDays }
+
+export function setSweepDays(days: number): void {
+  sweepDays.value = days
+  void window.rolly.state.patch({ sweepDays: days })
 }
 
 /**
@@ -25,7 +35,13 @@ export function isDismissed(session: SessionRecord): boolean {
 }
 
 export function dismiss(id: string): void {
-  dismissed.value = { ...dismissed.value, [id]: new Date().toISOString() }
+  dismissAll([id])
+}
+
+/** One write for the whole sweep: a hundred single dismissals is a hundred state patches. */
+export function dismissAll(ids: string[]): void {
+  const at = new Date().toISOString()
+  dismissed.value = { ...dismissed.value, ...Object.fromEntries(ids.map((id) => [id, at])) }
   persistDismissed()
 }
 

@@ -95,4 +95,6 @@ export interface RollyState {
   jiraKeys: Record<string, { key: string; url: string }>
   /** When a session was closed. Later activity outranks it and the row comes back. */
   dismissed: Record<string, string>
+  /** Days of silence before the board offers to close a session in bulk. */
+  sweepDays?: number
 }

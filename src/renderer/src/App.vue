@@ -6,7 +6,10 @@ import { release } from './terminals'
 import { hydratePrs } from './prs'
 import {
   dismiss,
+  dismissAll,
   hydrateState,
+  setSweepDays,
+  sweepDays,
   isDismissed,
   restore,
   isOverridden,
@@ -102,6 +105,7 @@ function track(id: string, cwd: string, title: string, gitBranch?: string): void
     stage: 'shape',
     edits: 0,
     pullRequestUrls: [],
+    jiraIssueUrls: [],
     status: 'working',
     pullRequests: null,
     lastActivity: new Date().toISOString()
@@ -189,6 +193,28 @@ const lifecycle = computed(() => {
 
 const closed = computed(() => visible.value.filter(isDismissed).sort(byUrgency))
 
+const SWEEP_CHOICES = [1, 3, 7, 14, 30]
+
+/**
+ * Age, not status: a stale session reading needs-you is the backlog too, and
+ * nothing a terminal is actually driving can be days old.
+ */
+const stale = computed(() => {
+  const cutoff = now.value - sweepDays.value * 86_400_000
+  return visible.value.filter(
+    (session) => !isDismissed(session) && Date.parse(session.lastActivity ?? '') < cutoff
+  )
+})
+
+async function closeStale(): Promise<void> {
+  const ids = stale.value.map((session) => session.id)
+  for (const id of ids.filter(isLive)) await window.rolly.pty.close(id)
+  dismissAll(ids)
+  if (selectedId.value && ids.includes(selectedId.value)) {
+    selectedId.value = lifecycle.value[0]?.rows[0]?.id ?? null
+  }
+}
+
 
 /** Urgency cuts across the lifecycle axis, so it sorts within a stage rather than above it. */
 function byUrgency(a: SessionRecord, b: SessionRecord): number {
@@ -246,6 +272,20 @@ onUnmounted(() => {
     <header class="top">
       <h1>Rolly</h1>
       <input v-model="filter" type="search" placeholder="Filter by title, branch or folder" />
+      <span class="sweep">
+        <button type="button" :disabled="!stale.length" @click="closeStale">
+          Close {{ stale.length }} idle
+        </button>
+        <select
+          :value="sweepDays"
+          :title="`Sessions untouched for longer than this`"
+          @change="setSweepDays(Number(($event.target as HTMLSelectElement).value))"
+        >
+          <option v-for="days in SWEEP_CHOICES" :key="days" :value="days">
+            {{ days }}d+
+          </option>
+        </select>
+      </span>
       <button type="button" class="new" @click="showNew = true">New session</button>
     </header>
 
@@ -369,7 +409,8 @@ onUnmounted(() => {
   }
 
   input,
-  .new {
+  .new,
+  .sweep {
     -webkit-app-region: no-drag;
   }
 
@@ -393,6 +434,36 @@ onUnmounted(() => {
 
   .new {
     padding: 7px 12px;
+  }
+
+  .sweep {
+    display: flex;
+    -webkit-app-region: no-drag;
+
+    button,
+    select {
+      padding: 7px 10px;
+      border-radius: 8px 0 0 8px;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    select {
+      margin-left: -1px;
+      border: 1px solid var(--border);
+      border-radius: 0 8px 8px 0;
+      background: linear-gradient(180deg, var(--bg-raised) 0%, var(--bg) 100%);
+      color: var(--text-faint);
+    }
+
+    button:disabled {
+      color: var(--text-faint);
+    }
+
+    button:not(:disabled):hover {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
   }
 }
 
