@@ -26,16 +26,19 @@ const ICONSET = [
  * Offscreen, because an on-screen window is clamped to the display and a 1024px
  * request came back 1024x1982. One capture, resized in-process: a window per
  * size races on loadURL.
+ *
+ * The size is set *after* construction because the constructor clamps to the
+ * display's work area — on a 1280x800 screen that quietly yields a 1024x752
+ * master and every icon comes out cropped. `setContentSize` is not clamped.
  */
 async function renderMaster(svg) {
   const win = new BrowserWindow({
-    width: 1024,
-    height: 1024,
     show: false,
     frame: false,
     transparent: true,
     webPreferences: { offscreen: true }
   })
+  win.setContentSize(1024, 1024)
   const page = `<style>html,body{margin:0;background:transparent}svg{display:block;width:1024px;height:1024px}</style>${svg}`
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`)
   await new Promise((resolve) => setTimeout(resolve, 600))

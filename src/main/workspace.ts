@@ -1,19 +1,14 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { app } from 'electron'
-
-/** Claude Code slugs a cwd by replacing every separator and space with a dash. */
-function projectSlug(cwd: string): string {
-  return cwd.replace(/[/\s]/g, '-')
-}
+import { projectSlug, projectsRoot } from './sessions/paths'
 
 export function workspaceDir(): string {
   return join(app.getPath('userData'), 'workspace')
 }
 
 function memoryDir(): string {
-  return join(homedir(), '.claude', 'projects', projectSlug(workspaceDir()), 'memory')
+  return join(projectsRoot(), projectSlug(workspaceDir()), 'memory')
 }
 
 const GUIDE = `# Rolly workspace
@@ -25,8 +20,7 @@ which spans repos has somewhere to live.
 first** — they are not loaded automatically from this folder, and they carry the
 standards each repo is reviewed against.
 
-Jeff's repositories live in \`~/repo/spin\` (plus \`~/repo/rolly\`). Work in them
-by absolute path; nothing needs to be copied here.
+Work in a repository by absolute path; nothing needs to be copied here.
 `
 
 const SEED = `---

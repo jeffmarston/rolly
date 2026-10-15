@@ -10,10 +10,10 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "type-check": "vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.node.json",
-    "postinstall": "electron-rebuild -f -w node-pty && chmod +x node_modules/node-pty/build/Release/spawn-helper node_modules/node-pty/prebuilds/*/spawn-helper",
+    "postinstall": "node scripts/postinstall.mjs",
     "package": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
-    "icon": "esbuild scripts/make-icon.mjs --bundle --platform=node --format=cjs --external:electron --outfile=scripts/make-icon.cjs && electron scripts/make-icon.cjs assets && iconutil -c icns assets/icon.iconset -o assets/icon.icns"
+    "icon": "esbuild scripts/make-icon.mjs --bundle --platform=node --format=cjs --external:electron --outfile=scripts/make-icon.cjs && electron scripts/make-icon.cjs assets && node scripts/make-icns.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -69,7 +69,11 @@
       ]
     },
     "win": {
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-setup.${ext}"
     },
     "linux": {
       "icon": "assets/icon.png",
@@ -77,6 +81,13 @@
       "target": [
         "AppImage"
       ]
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Rolly"
+    },
+    "npmRebuild": false
   }
 }
