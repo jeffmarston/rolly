@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import type { SessionRecord, Stage } from '@shared/types'
 import { STAGE_HINT, STAGE_LABEL, STAGE_ORDER } from '@shared/types'
-import { release } from './terminals'
+import { focus as focusTerminal, release } from './terminals'
 import { homeRelative } from './time'
 import { hydratePrs } from './prs'
 import {
@@ -75,6 +75,7 @@ function ticketCreated(issue: { key: string; url: string }): void {
 let stopUpdates: (() => void) | undefined
 let stopPrs: (() => void) | undefined
 let stopExits: (() => void) | undefined
+let stopSelect: (() => void) | undefined
 let clock: ReturnType<typeof setInterval> | undefined
 
 const rows = computed(() => {
@@ -108,6 +109,7 @@ function track(id: string, cwd: string, title: string, gitBranch?: string): void
     edits: 0,
     pullRequestUrls: [],
     jiraIssueUrls: [],
+    workDirs: [],
     status: 'working',
     pullRequests: null,
     lastActivity: new Date().toISOString()
@@ -248,6 +250,11 @@ onMounted(async () => {
   projectsRoot.value = await window.rolly.projectsRoot()
   hookInfo.value = await window.rolly.hooks.info()
   stopUpdates = window.rolly.onUpdate(applySessions)
+  // The diff window asks for a session when it types a question into it.
+  stopSelect = window.rolly.diff.onSelect((id) => {
+    selectedId.value = id
+    void nextTick(() => focusTerminal(id))
+  })
   stopExits = window.rolly.pty.onExit(({ id }) => {
     liveIds.value = liveIds.value.filter((live) => live !== id)
     // Let the pane unmount before the terminal behind it is disposed.
@@ -265,6 +272,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopUpdates?.()
   stopExits?.()
+  stopSelect?.()
   stopPrs?.()
   clearInterval(clock)
 })

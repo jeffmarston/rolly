@@ -1,3 +1,4 @@
+import { dirname } from 'node:path'
 import type { SessionRecord } from '@shared/types'
 import { contextTotal, inferContextLimit } from './context'
 import {
@@ -15,6 +16,8 @@ export interface SessionDraft extends SessionRecord {
   prUrls?: Set<string>
   jiraCalls?: Set<string>
   jiraUrls?: Set<string>
+  /** Folders the session edited in, by how often — the busiest is where the work is. */
+  editDirs?: Map<string, number>
   /** Kept apart from the summary: status inference reads Claude's words, the rail shows Jeff's. */
   lastReply?: string
   contextPeak?: number
@@ -24,6 +27,9 @@ export interface SessionDraft extends SessionRecord {
   firstPrompt?: string
   lastPrompt?: string
 }
+
+/** Enough to find the repo past a memory or scratch write, short enough to stay cheap. */
+const WORK_DIRS = 5
 
 /** Wrapper blocks Claude Code injects into user turns — noise in a one-line summary. */
 const WRAPPERS =
@@ -71,6 +77,7 @@ export function emptyDraft(id: string, file: string, projectDir: string): Sessio
     edits: 0,
     pullRequestUrls: [],
     jiraIssueUrls: [],
+    workDirs: [],
     status: 'idle',
     pullRequests: null
   }
@@ -145,12 +152,19 @@ function readStageSignals(record: SessionDraft, message: unknown): void {
       type?: string
       id?: string
       name?: string
-      input?: { command?: string }
+      input?: { command?: string; file_path?: string }
       tool_use_id?: string
     }
 
     if (type === 'tool_use') {
-      if (countsAsEdit(name, input?.command)) record.edits++
+      if (countsAsEdit(name, input?.command)) {
+        record.edits++
+        if (input?.file_path) {
+          const dir = dirname(input.file_path)
+          record.editDirs = record.editDirs ?? new Map()
+          record.editDirs.set(dir, (record.editDirs.get(dir) ?? 0) + 1)
+        }
+      }
       if (id && opensPullRequest(name, input?.command)) {
         record.prCalls = record.prCalls ?? new Set()
         record.prCalls.add(id)
@@ -197,6 +211,10 @@ export function finalize(record: SessionDraft): SessionDraft {
   record.summary = record.lastPrompt
   record.pullRequestUrls = [...(record.prUrls ?? [])]
   record.jiraIssueUrls = [...(record.jiraUrls ?? [])]
+  record.workDirs = [...(record.editDirs ?? new Map())]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, WORK_DIRS)
+    .map(([dir]) => dir)
   record.stage = deriveStage(record.edits, record.pullRequestUrls.length)
   record.title =
     record.titleOverride ||

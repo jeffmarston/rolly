@@ -1,4 +1,4 @@
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { app, shell, dialog, BrowserWindow, ipcMain, clipboard, nativeImage } from 'electron'
 import type { ChangedFile, RollyState, SessionRecord } from '@shared/types'
 import { SessionWatcher } from './sessions/watcher'
@@ -82,16 +82,16 @@ function createWindow(): void {
   }
 }
 
-function openDiffWindow(cwd: string): void {
+function openDiffWindow(target: { id: string; dirs: string[] }): void {
   const diff = new BrowserWindow({
     width: 1280,
     height: 820,
     backgroundColor: '#121212',
-    title: `Diff — ${basename(cwd)}`,
+    title: 'Diff',
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
   })
 
-  const hash = `diff:${encodeURIComponent(cwd)}`
+  const hash = `diff:${encodeURIComponent(JSON.stringify(target))}`
   if (process.env.ELECTRON_RENDERER_URL) {
     diff.loadURL(`${process.env.ELECTRON_RENDERER_URL}#${hash}`)
   } else {
@@ -128,9 +128,19 @@ app.whenReady().then(() => {
 
   ipcMain.handle('sessions:list', () => reported(watcher.snapshot()))
 
-  ipcMain.handle('diff:open', (_event, cwd: string) => openDiffWindow(cwd))
-  ipcMain.handle('diff:files', (_event, cwd: string) => changedFiles(cwd))
-  ipcMain.handle('diff:file', (_event, cwd: string, file: ChangedFile) => fileVersions(cwd, file))
+  ipcMain.handle('diff:open', (_event, target: { id: string; dirs: string[] }) =>
+    openDiffWindow(target)
+  )
+
+  // The diff window types into a terminal the main window owns, so bring that one forward.
+  ipcMain.handle('window:focus', (_event, id: string) => {
+    window?.show()
+    send('session:select', id)
+  })
+  ipcMain.handle('diff:files', (_event, dirs: string[]) => changedFiles(dirs))
+  ipcMain.handle('diff:file', (_event, scope: { root: string; base: string }, file: ChangedFile) =>
+    fileVersions(scope, file)
+  )
   ipcMain.handle('hooks:info', () => ({ url: hooks.url, listening: hooks.listening }))
   ipcMain.handle('prs:list', () => prs.snapshot())
   ipcMain.handle('jira:hasCredentials', () => hasCredentials())

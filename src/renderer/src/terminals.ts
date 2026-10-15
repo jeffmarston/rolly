@@ -57,6 +57,11 @@ export async function acquire(id: string): Promise<Pane> {
   return pane
 }
 
+/** The diff window can type into a pane that is already open, and typing needs the caret. */
+export function focus(id: string): void {
+  panes.get(id)?.term.focus()
+}
+
 export function release(id: string): void {
   const pane = panes.get(id)
   if (!pane) return

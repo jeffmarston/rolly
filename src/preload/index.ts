@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ChangedFile, PrState, RollyState, SessionRecord } from '@shared/types'
+import type { ChangedFile, DiffScope, PrState, RollyState, SessionRecord } from '@shared/types'
 
 function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
   const listener = (_event: unknown, payload: T): void => handler(payload)
@@ -55,10 +55,15 @@ const api = {
   },
 
   diff: {
-    open: (cwd: string): Promise<void> => ipcRenderer.invoke('diff:open', cwd),
-    files: (cwd: string): Promise<ChangedFile[]> => ipcRenderer.invoke('diff:files', cwd),
-    file: (cwd: string, file: ChangedFile): Promise<{ before: string; after: string }> =>
-      ipcRenderer.invoke('diff:file', cwd, file)
+    open: (target: { id: string; dirs: string[] }): Promise<void> =>
+      ipcRenderer.invoke('diff:open', target),
+    focusSession: (id: string): Promise<void> => ipcRenderer.invoke('window:focus', id),
+    onSelect: (handler: (id: string) => void) => subscribe<string>('session:select', handler),
+    files: (dirs: string[]): Promise<DiffScope> => ipcRenderer.invoke('diff:files', dirs),
+    file: (
+      scope: { root: string; base: string },
+      file: ChangedFile
+    ): Promise<{ before: string; after: string }> => ipcRenderer.invoke('diff:file', scope, file)
   },
 
   pty: {

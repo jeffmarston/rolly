@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, toRaw } from 'vue'
 import type { SessionRecord } from '@shared/types'
 import { STATUS_LABEL, modelName } from '@shared/types'
 import { jiraIssues, sessionLinks } from '@shared/links'
@@ -29,8 +29,13 @@ function open(url: string): void {
   void window.rolly.openExternal(url)
 }
 
+/** A session can work anywhere — a worktree, a sibling repo — so follow its edits, then its cwd. */
+const diffDirs = computed(() =>
+  [...props.session.workDirs, props.session.cwd].filter((dir): dir is string => !!dir)
+)
+
 function openDiff(): void {
-  if (props.session.cwd) void window.rolly.diff.open(props.session.cwd)
+  void window.rolly.diff.open({ id: props.session.id, dirs: toRaw(diffDirs.value) })
 }
 </script>
 
@@ -95,7 +100,7 @@ function openDiff(): void {
     </section>
 
     <footer>
-      <button v-if="session.cwd" type="button" @click="openDiff">Diff</button>
+      <button v-if="diffDirs.length" type="button" @click="openDiff">Diff</button>
       <button type="button" @click="emit('resume')">Copy resume command</button>
       <button v-if="dismissed" type="button" @click="emit('restore')">Reopen</button>
       <button v-else type="button" class="danger" @click="emit('close')">Close session</button>

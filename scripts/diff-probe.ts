@@ -3,9 +3,9 @@ import { changedFiles, fileVersions } from '../src/main/diff'
 
 /** Runs the git plumbing behind the diff window against a real repo. */
 async function main(): Promise<void> {
-  const cwd = process.argv[2] ?? process.cwd()
-  const files = await changedFiles(cwd)
-  console.log(`${files.length} changed against HEAD in ${cwd}`)
+  const dirs = process.argv.slice(2)
+  const { root, base, files } = await changedFiles(dirs.length ? dirs : [process.cwd()])
+  console.log(`${files.length} changed in ${root} since ${base.slice(0, 8)}`)
 
   for (const file of files) {
     assert.match(file.status, /^[A-Z]$/, `status should be one letter, got ${file.status}`)
@@ -17,11 +17,11 @@ async function main(): Promise<void> {
   const first = files[0]
   if (!first) return console.log('nothing to read back')
 
-  const { before, after } = await fileVersions(cwd, first)
+  const { before, after } = await fileVersions({ root, base }, first)
   assert.equal(typeof before, 'string')
   assert.equal(typeof after, 'string')
-  assert.notEqual(before, after, 'a changed file should differ from HEAD')
-  console.log(`read ${first.path}: ${before.length} bytes at HEAD, ${after.length} on disk`)
+  assert.notEqual(before, after, 'a changed file should differ from the base')
+  console.log(`read ${first.path}: ${before.length} bytes at the base, ${after.length} on disk`)
 }
 
 main().catch((error) => {

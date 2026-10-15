@@ -22,6 +22,8 @@ export interface SessionRecord {
   pullRequestUrls: string[]
   /** Tickets filed from inside the session, newest last. */
   jiraIssueUrls: string[]
+  /** Folders the session edited in, busiest first — a worktree it moved to, not the cwd it started in. */
+  workDirs: string[]
   model?: string
   effort?: string
   permissionMode?: string
@@ -33,6 +35,14 @@ export interface SessionRecord {
   statusReason?: string
   /** null until M4 wires `gh`; the rail renders it as unknown. */
   pullRequests: number | null
+}
+
+/** Where a session's changes live, and what they are measured against. */
+export interface DiffScope {
+  root: string
+  /** The commit the branch left the trunk at, so committed work still reads as changed. */
+  base: string
+  files: ChangedFile[]
 }
 
 export interface ChangedFile {
