@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, toRaw, watch } from 'vue'
 import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import type { ChangedFile, DiffScope } from '@shared/types'
@@ -23,8 +23,15 @@ const dirs = target.dirs
 const askable = ref(false)
 const ASK_POLL_MS = 4000
 const ASK_HINT = 'Reference this line in the session — select lines first to send a range'
+/** The list is narrow by default; a deep tree needs room, so the width is draggable and kept. */
+const MIN_WIDTH = 180
+const MAX_WIDTH = 620
+const width = ref(280)
+const collapsed = ref(new Set<string>())
 const scope = shallowRef<DiffScope>()
 const files = ref<ChangedFile[]>([])
+/** Fixed at the first load: re-scoping to one repo would otherwise forget the others. */
+const candidates = ref<DiffScope['roots']>([])
 const selected = ref<ChangedFile>()
 const error = ref('')
 const host = ref<HTMLElement>()
@@ -32,6 +39,8 @@ const editor = shallowRef<monaco.editor.IStandaloneDiffEditor>()
 let asking: ReturnType<typeof setInterval> | undefined
 
 onMounted(async () => {
+  width.value = (await window.rolly.state.get()).diffWidth ?? width.value
+
   editor.value = monaco.editor.createDiffEditor(host.value!, {
     theme: 'vs-dark',
     readOnly: true,
@@ -47,15 +56,21 @@ onMounted(async () => {
   watchAsking()
   armAskGlyph(editor.value.getModifiedEditor())
 
+  await load(dirs)
+  candidates.value = scope.value?.roots ?? []
+})
+
+async function load(where: string[]): Promise<void> {
   try {
-    scope.value = await window.rolly.diff.files(dirs)
+    scope.value = await window.rolly.diff.files(where)
     files.value = scope.value.files
     document.title = `Diff — ${scope.value.root.split('/').pop()}`
     selected.value = files.value[0]
+    error.value = ''
   } catch (cause) {
     error.value = message(cause)
   }
-})
+}
 
 watch(selected, async (file) => {
   if (!file || !editor.value || !scope.value) return
@@ -76,6 +91,45 @@ watch(selected, async (file) => {
     error.value = message(cause)
   }
 })
+
+/** Files under the folder they live in: a flat column of long paths reads as noise. */
+const folders = computed(() => {
+  const groups = new Map<string, ChangedFile[]>()
+  for (const file of files.value) {
+    const cut = file.path.lastIndexOf('/')
+    const dir = cut < 0 ? '' : file.path.slice(0, cut)
+    groups.set(dir, [...(groups.get(dir) ?? []), file])
+  }
+  return [...groups]
+})
+
+function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+function toggle(dir: string): void {
+  const next = new Set(collapsed.value)
+  if (!next.delete(dir)) next.add(dir)
+  collapsed.value = next
+}
+
+/** The grip is a sibling of the list, so only the list resizes and monaco relayouts itself. */
+function startDrag(event: MouseEvent): void {
+  event.preventDefault()
+  const from = event.clientX
+  const start = width.value
+
+  const move = (moved: MouseEvent): void => {
+    width.value = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, start + moved.clientX - from))
+  }
+  const up = (): void => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    void window.rolly.state.patch({ diffWidth: width.value })
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
 
 /** An IPC rejection arrives wrapped in its handler's name, which is noise to read. */
 function message(cause: unknown): string {
@@ -149,8 +203,20 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="diff">
-    <aside>
+    <aside :style="{ width: `${width}px`, flex: `0 0 ${width}px` }">
       <h1>{{ (scope?.root ?? dirs[0] ?? '').split('/').pop() }}</h1>
+      <!-- A session that moved between repos leaves rolly guessing which one you meant. -->
+      <select
+        v-if="candidates.length > 1"
+        class="repo"
+        :value="scope?.root"
+        title="Repos this session worked in"
+        @change="load([($event.target as HTMLSelectElement).value])"
+      >
+        <option v-for="repo in candidates" :key="repo.root" :value="repo.root">
+          {{ repo.root.split('/').pop() }} — {{ repo.files }} changed
+        </option>
+      </select>
       <p class="count">{{ files.length }} changed</p>
       <p v-if="error" class="error">{{ error }}</p>
       <p v-else-if="!files.length" class="empty">Nothing changed since the branch point.</p>
@@ -161,20 +227,29 @@ onBeforeUnmount(() => {
             : 'Open the session in rolly to reference a line.'
         }}
       </p>
-      <button
-        v-for="file in files"
-        :key="file.path"
-        type="button"
-        class="file"
-        :class="[{ on: file.path === selected?.path }, STATUS_LABEL[file.status]]"
-        :title="file.path"
-        @click="selected = file"
-      >
-        <span class="mark">{{ file.status }}</span>
-        <!-- The rtl trick ellipsises from the left; the marks stop it reordering a leading dot. -->
-        <span class="path">&#x200e;{{ file.path }}&#x200e;</span>
-      </button>
+      <template v-for="[dir, group] in folders" :key="dir">
+        <button type="button" class="dir" @click="toggle(dir)">
+          <span class="twist">{{ collapsed.has(dir) ? '▸' : '▾' }}</span>
+          <!-- The rtl trick ellipsises from the left; the marks stop it reordering a leading dot. -->
+          <span class="path">&#x200e;{{ dir || '/' }}&#x200e;</span>
+          <span class="n">{{ group.length }}</span>
+        </button>
+        <button
+          v-for="file in group"
+          v-show="!collapsed.has(dir)"
+          :key="file.path"
+          type="button"
+          class="file"
+          :class="[{ on: file.path === selected?.path }, STATUS_LABEL[file.status]]"
+          :title="file.path"
+          @click="selected = file"
+        >
+          <span class="mark">{{ file.status }}</span>
+          <span class="name">{{ basename(file.path) }}</span>
+        </button>
+      </template>
     </aside>
+    <div class="grip" title="Drag to resize" @mousedown="startDrag" />
     <div ref="host" class="pane" />
   </main>
 </template>
@@ -188,8 +263,6 @@ onBeforeUnmount(() => {
 aside {
   display: flex;
   overflow-y: auto;
-  width: 280px;
-  flex: 0 0 280px;
   flex-direction: column;
   padding: 14px 10px;
   border-right: 1px solid var(--border);
@@ -215,9 +288,52 @@ aside {
   color: var(--danger);
 }
 
+.repo {
+  margin: 6px 4px 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.grip {
+  width: 5px;
+  flex: 0 0 5px;
+  margin-left: -3px;
+  cursor: col-resize;
+
+  &:hover {
+    background: var(--working);
+  }
+}
+
+.dir {
+  display: flex;
+  align-items: center;
+  padding: 7px 7px 3px;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  gap: 5px;
+  text-align: left;
+
+  .twist {
+    width: 7px;
+    flex: 0 0 7px;
+  }
+
+  .n {
+    margin-left: auto;
+  }
+}
+
 .file {
   display: flex;
-  padding: 5px 7px;
+  padding: 5px 7px 5px 19px;
   border: 0;
   border-radius: 5px;
   background: none;
@@ -249,12 +365,19 @@ aside {
     color: var(--danger);
   }
 
-  .path {
+  .name {
     overflow: hidden;
-    direction: rtl;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+/* Truncate a folder from the left: the leaf is what tells it apart. */
+.dir .path {
+  overflow: hidden;
+  direction: rtl;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pane {

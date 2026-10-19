@@ -11,10 +11,20 @@ const TRUNKS = ['origin/HEAD', 'origin/main', 'main', 'origin/master', 'master']
 
 /**
  * Everything the session did, from wherever it did it: the repo containing the
- * files it edited, measured from where its branch left the trunk.
+ * files it edited, measured from where its branch left the trunk. A session that
+ * worked in two places wins nothing from the one it left clean, so that one is skipped.
  */
 export async function changedFiles(dirs: string[]): Promise<DiffScope> {
-  const root = await repoRoot(dirs)
+  const roots = await repoRoots(dirs)
+  if (!roots.length) throw new Error(`No git repository under ${dirs[0] ?? 'this session'}.`)
+
+  const scopes = await Promise.all(roots.map(scopeOf))
+  // Default to somewhere with something to show; the window offers the rest.
+  const picked = scopes.find((scope) => scope.files.length) ?? scopes[0]
+  return { ...picked, roots: scopes.map(({ root, files }) => ({ root, files: files.length })) }
+}
+
+async function scopeOf(root: string): Promise<Omit<DiffScope, 'roots'>> {
   const base = await baseRef(root)
 
   const [tracked, untracked] = await Promise.all([
@@ -41,15 +51,17 @@ async function directory(path: string): Promise<string> {
 }
 
 /**
- * The busiest folder that is in a repo at all: a session's last write is often a
- * memory file, and a worktree is its own root, which is exactly what we want.
+ * The repos behind the folders a session worked in, busiest first: its last write is
+ * often a memory file, and a worktree is its own root, which is exactly what we want.
  */
-async function repoRoot(dirs: string[]): Promise<string> {
+async function repoRoots(dirs: string[]): Promise<string[]> {
+  const roots: string[] = []
   for (const dir of dirs) {
-    const root = await git(await directory(dir), ['rev-parse', '--show-toplevel']).catch(() => '')
-    if (root.trim()) return root.trim()
+    const root = (await git(await directory(dir), ['rev-parse', '--show-toplevel']).catch(() => ''))
+      .trim()
+    if (root && !roots.includes(root)) roots.push(root)
   }
-  throw new Error(`No git repository under ${dirs[0] ?? 'this session'}.`)
+  return roots
 }
 
 /** An agent commits as it goes, so HEAD alone would report a finished branch as unchanged. */

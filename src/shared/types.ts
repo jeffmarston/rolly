@@ -40,6 +40,8 @@ export interface SessionRecord {
 /** Where a session's changes live, and what they are measured against. */
 export interface DiffScope {
   root: string
+  /** Every repo the session worked in, so a wrong guess is one click from the right one. */
+  roots: { root: string; files: number }[]
   /** The commit the branch left the trunk at, so committed work still reads as changed. */
   base: string
   files: ChangedFile[]
@@ -95,6 +97,9 @@ export function contextShare(record: SessionRecord): number | undefined {
   return record.contextTokens / record.contextLimit
 }
 
+/** Kanban sorts by lifecycle; simple is one list and nothing else. */
+export type Layout = 'kanban' | 'simple'
+
 /** Rolly's own persisted state, written to userData/state.json by the main process. */
 export interface RollyState {
   stageOverrides: Record<string, Stage>
@@ -107,4 +112,9 @@ export interface RollyState {
   dismissed: Record<string, string>
   /** Days of silence before the board offers to close a session in bulk. */
   sweepDays?: number
+  /** A name Jeff typed, with the title it replaced: if the session renames itself, that wins. */
+  names?: Record<string, { name: string; over: string }>
+  /** The diff window's file list, dragged to taste. */
+  diffWidth?: number
+  layout?: Layout
 }

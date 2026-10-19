@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ChangedFile, DiffScope, PrState, RollyState, SessionRecord } from '@shared/types'
+import type { ChangedFile, DiffScope, Layout, PrState, RollyState, SessionRecord } from '@shared/types'
 
 function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
   const listener = (_event: unknown, payload: T): void => handler(payload)
@@ -15,6 +15,8 @@ const api = {
   copyResume: (id: string): Promise<void> => ipcRenderer.invoke('sessions:copyResume', id),
   onUpdate: (handler: (sessions: SessionRecord[]) => void) =>
     subscribe<SessionRecord[]>('sessions:update', handler),
+  /** Layout lives in the menu, so the main process owns it and tells the renderer. */
+  onLayout: (handler: (layout: Layout) => void) => subscribe<Layout>('layout:changed', handler),
 
   hooks: {
     info: (): Promise<{ url: string; listening: boolean }> => ipcRenderer.invoke('hooks:info')

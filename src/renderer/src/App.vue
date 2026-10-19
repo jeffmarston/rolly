@@ -9,12 +9,14 @@ import {
   dismiss,
   dismissAll,
   hydrateState,
+  layout,
   setSweepDays,
   sweepDays,
   isDismissed,
   restore,
   isOverridden,
   jiraFor,
+  named,
   setJira,
   setStage,
   stageOf
@@ -22,6 +24,8 @@ import {
 import BoardCard from './components/BoardCard.vue'
 import BoardColumn from './components/BoardColumn.vue'
 import CloseRail from './components/CloseRail.vue'
+import SessionList from './components/SessionList.vue'
+import ClosedPanel from './components/ClosedPanel.vue'
 import DetailPane from './components/DetailPane.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
 import JiraDialog from './components/JiraDialog.vue'
@@ -76,11 +80,12 @@ let stopUpdates: (() => void) | undefined
 let stopPrs: (() => void) | undefined
 let stopExits: (() => void) | undefined
 let stopSelect: (() => void) | undefined
+let stopLayout: (() => void) | undefined
 let clock: ReturnType<typeof setInterval> | undefined
 
 const rows = computed(() => {
   const known = new Set(sessions.value.map((session) => session.id))
-  return [...provisional.value.filter((row) => !known.has(row.id)), ...sessions.value]
+  return [...provisional.value.filter((row) => !known.has(row.id)), ...sessions.value].map(named)
 })
 
 function isLive(id: string): boolean {
@@ -197,6 +202,9 @@ const lifecycle = computed(() => {
 
 const closed = computed(() => visible.value.filter(isDismissed).sort(byUrgency))
 
+/** Simple layout: no lifecycle axis, just urgency. */
+const open = computed(() => visible.value.filter((session) => !isDismissed(session)).sort(byUrgency))
+
 const SWEEP_CHOICES = [1, 3, 7, 14, 30]
 
 /**
@@ -250,6 +258,10 @@ onMounted(async () => {
   projectsRoot.value = await window.rolly.projectsRoot()
   hookInfo.value = await window.rolly.hooks.info()
   stopUpdates = window.rolly.onUpdate(applySessions)
+  stopLayout = window.rolly.onLayout((next) => {
+    layout.value = next
+    showClosed.value = false
+  })
   // The diff window asks for a session when it types a question into it.
   stopSelect = window.rolly.diff.onSelect((id) => {
     selectedId.value = id
@@ -273,6 +285,7 @@ onUnmounted(() => {
   stopUpdates?.()
   stopExits?.()
   stopSelect?.()
+  stopLayout?.()
   stopPrs?.()
   clearInterval(clock)
 })
@@ -300,7 +313,7 @@ onUnmounted(() => {
       <button type="button" class="new" @click="showNew = true">New session</button>
     </header>
 
-    <div class="board">
+    <div v-if="layout === 'kanban'" class="board">
       <BoardColumn
         v-for="column in lifecycle"
         :key="column.stage"
@@ -352,23 +365,55 @@ onUnmounted(() => {
       />
     </div>
 
-    <div class="tie" />
+    <div v-if="layout === 'kanban'" class="tie" />
 
-    <DetailPane
-      compact
-      :session="selected"
-      :now="now"
-      :live="selected ? isLive(selected.id) : false"
-      :stage="selected ? stageOf(selected) : undefined"
-      :stage-overridden="selected ? isOverridden(selected) : false"
-      :jira="selected ? jiraFor(selected) : undefined"
-      :dismissed="selected ? isDismissed(selected) : false"
-      @adopt="adopt()"
-      @close="closeSession"
-      @restore="restoreSession"
-      @stage="changeStage"
-      @create-jira="showJira = true"
-    />
+    <div class="work" :class="layout">
+      <SessionList
+        v-if="layout === 'simple'"
+        :rows="open"
+        :closed-count="closed.length"
+        :now="now"
+        :selected-id="selectedId"
+        :live="isLive"
+        :dragging="!!dragging"
+        :show-closed="showClosed"
+        @pick="pick($event)"
+        @drag="dragging = $event"
+        @close="closeById"
+        @restore="restore"
+        @toggle-closed="showClosed = !showClosed"
+      />
+
+      <ClosedPanel
+        v-if="layout === 'simple'"
+        :rows="closed"
+        :now="now"
+        :selected-id="selectedId"
+        :live="isLive"
+        :open="showClosed"
+        @pick="selectedId = $event.id"
+        @drag="dragging = $event"
+        @close="closeById"
+        @restore="restore"
+        @hide="showClosed = false"
+      />
+
+      <DetailPane
+        compact
+        :session="selected"
+        :now="now"
+        :live="selected ? isLive(selected.id) : false"
+        :stage="selected ? stageOf(selected) : undefined"
+        :stage-overridden="selected ? isOverridden(selected) : false"
+        :jira="selected ? jiraFor(selected) : undefined"
+        :dismissed="selected ? isDismissed(selected) : false"
+        @adopt="adopt()"
+        @close="closeSession"
+        @restore="restoreSession"
+        @stage="changeStage"
+        @create-jira="showJira = true"
+      />
+    </div>
 
     <footer class="status">
       <span>
@@ -535,6 +580,20 @@ onUnmounted(() => {
 }
 
 /** Splits the board from the terminal below it. */
+/** The detail pane used to be the shell's flex child; now it shares the row with the list. */
+.work {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+  flex: 1;
+}
+
+/** The panel slides over the detail pane, so it starts where the list ends. */
+.work.simple > .closed {
+  left: 320px;
+}
+
 .tie {
   height: 2px;
   flex: 0 0 auto;

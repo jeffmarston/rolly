@@ -113,7 +113,7 @@ app.whenReady().then(() => {
     applicationVersion: app.getVersion(),
     credits: 'A fleet view for Claude Code sessions.'
   })
-  installMenu()
+  installMenu((layout) => send('layout:changed', layout))
   // Packaged builds take the dock icon from the bundle; dev runs need it set by hand.
   if (process.platform === 'darwin' && !app.isPackaged) {
     app.dock?.setIcon(nativeImage.createFromPath(iconPath()))

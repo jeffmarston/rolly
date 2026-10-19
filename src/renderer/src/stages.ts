@@ -1,5 +1,5 @@
 import { ref, toRaw } from 'vue'
-import type { SessionRecord, Stage } from '@shared/types'
+import type { Layout, SessionRecord, Stage } from '@shared/types'
 
 /** Classification is a heuristic, so a wrong call has to be correctable and stay corrected. */
 const overrides = ref<Record<string, Stage>>({})
@@ -8,6 +8,9 @@ const jira = ref<Record<string, { key: string; url: string }>>({})
 const dismissed = ref<Record<string, string>>({})
 /** Days of silence that count as abandoned. Three is a long weekend. */
 const sweepDays = ref(3)
+const names = ref<Record<string, { name: string; over: string }>>({})
+/** Owned by the View menu; the renderer only reads it. */
+const layout = ref<Layout>('kanban')
 
 export async function hydrateState(): Promise<void> {
   const state = await window.rolly.state.get()
@@ -16,9 +19,37 @@ export async function hydrateState(): Promise<void> {
   jira.value = state.jiraKeys ?? {}
   dismissed.value = state.dismissed ?? {}
   sweepDays.value = state.sweepDays ?? sweepDays.value
+  layout.value = state.layout ?? layout.value
+  names.value = state.names ?? {}
 }
 
-export { sweepDays }
+/**
+ * Applied where rows enter the renderer, so search and every card see the new name.
+ * A session renamed from its own terminal has moved on, so rolly's name steps aside.
+ */
+export function named(session: SessionRecord): SessionRecord {
+  const held = names.value[session.id]
+  if (!held || held.over !== session.title) return session
+  return { ...session, title: held.name }
+}
+
+/** An empty name is not a name: it drops the override and the derived title comes back. */
+export function rename(session: SessionRecord, name: string): void {
+  const trimmed = name.trim()
+  const id = session.id
+  // Renaming twice must keep the original title to watch, not the name rolly is showing.
+  const over = names.value[id]?.over ?? session.title
+
+  if (trimmed) {
+    names.value = { ...names.value, [id]: { name: trimmed, over } }
+  } else {
+    const { [id]: _cleared, ...rest } = names.value
+    names.value = rest
+  }
+  void window.rolly.state.patch({ names: toRaw(names.value) })
+}
+
+export { layout, sweepDays }
 
 export function setSweepDays(days: number): void {
   sweepDays.value = days

@@ -2,6 +2,7 @@ import { dirname } from 'node:path'
 import type { SessionRecord } from '@shared/types'
 import { contextTotal, inferContextLimit } from './context'
 import {
+  bashDirs,
   countsAsEdit,
   deriveStage,
   filesJiraIssue,
@@ -16,8 +17,8 @@ export interface SessionDraft extends SessionRecord {
   prUrls?: Set<string>
   jiraCalls?: Set<string>
   jiraUrls?: Set<string>
-  /** Folders the session edited in, by how often — the busiest is where the work is. */
-  editDirs?: Map<string, number>
+  /** Folders the session worked in, weighted — the heaviest is where the work is. */
+  workDirCounts?: Map<string, number>
   /** Kept apart from the summary: status inference reads Claude's words, the rail shows Jeff's. */
   lastReply?: string
   contextPeak?: number
@@ -30,6 +31,8 @@ export interface SessionDraft extends SessionRecord {
 
 /** Enough to find the repo past a memory or scratch write, short enough to stay cheap. */
 const WORK_DIRS = 5
+/** A file the session edited outranks a folder it only visited. */
+const FILE_EDIT_WEIGHT = 5
 
 /** Wrapper blocks Claude Code injects into user turns — noise in a one-line summary. */
 const WRAPPERS =
@@ -159,10 +162,12 @@ function readStageSignals(record: SessionDraft, message: unknown): void {
     if (type === 'tool_use') {
       if (countsAsEdit(name, input?.command)) {
         record.edits++
-        if (input?.file_path) {
-          const dir = dirname(input.file_path)
-          record.editDirs = record.editDirs ?? new Map()
-          record.editDirs.set(dir, (record.editDirs.get(dir) ?? 0) + 1)
+        if (input?.file_path) bump(record, dirname(input.file_path), FILE_EDIT_WEIGHT)
+      }
+      // A session can work entirely through the shell, in a repo its cwd knows nothing about.
+      if (name === 'Bash' && typeof input?.command === 'string') {
+        for (const [dir, weight] of bashDirs(input.command, record.cwd ?? '')) {
+          bump(record, dir, weight)
         }
       }
       if (id && opensPullRequest(name, input?.command)) {
@@ -193,6 +198,11 @@ function readStageSignals(record: SessionDraft, message: unknown): void {
   }
 }
 
+function bump(record: SessionDraft, dir: string, weight: number): void {
+  record.workDirCounts = record.workDirCounts ?? new Map()
+  record.workDirCounts.set(dir, (record.workDirCounts.get(dir) ?? 0) + weight)
+}
+
 function readModelAndUsage(record: SessionDraft, message: unknown): void {
   if (!message || typeof message !== 'object') return
   const { model, usage } = message as { model?: string; usage?: Record<string, unknown> }
@@ -211,7 +221,7 @@ export function finalize(record: SessionDraft): SessionDraft {
   record.summary = record.lastPrompt
   record.pullRequestUrls = [...(record.prUrls ?? [])]
   record.jiraIssueUrls = [...(record.jiraUrls ?? [])]
-  record.workDirs = [...(record.editDirs ?? new Map())]
+  record.workDirs = [...(record.workDirCounts ?? new Map())]
     .sort((a, b) => b[1] - a[1])
     .slice(0, WORK_DIRS)
     .map(([dir]) => dir)

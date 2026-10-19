@@ -53,7 +53,7 @@ function sessionIdOf(file: string): string {
 }
 
 function stripDraftFields(draft: SessionDraft): SessionRecord {
-  const { lastReply, prCalls, prUrls, editDirs, contextPeak, titleOverride, agentName, aiTitle, firstPrompt, lastPrompt, ...record } =
+  const { lastReply, prCalls, prUrls, workDirCounts, contextPeak, titleOverride, agentName, aiTitle, firstPrompt, lastPrompt, ...record } =
     draft
   return record
 }
